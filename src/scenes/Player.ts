@@ -17,14 +17,14 @@ export class Player extends Phaser.GameObjects.Container {
   facing = 1;
   busy = false;
 
-  constructor(scene: Phaser.Scene, x: number, y: number, scale: number) {
+  constructor(scene: Phaser.Scene, x: number, y: number, scale: number, look: { hat?: boolean; golden?: boolean } = {}) {
     super(scene, x, y);
     this.shadow = scene.add.image(0, 0, 'shadow').setScale(0.75, 0.7);
     this.inner = scene.add.container(0, 0);
     this.legL = scene.add.image(-17, -9, 'pip-leg');
     this.legR = scene.add.image(19, -9, 'pip-leg');
     const bag = scene.add.image(-44, -64, 'pip-bag').setAngle(-8);
-    const bodyImg = scene.add.image(0, -8, 'pip-body').setOrigin(0.5, 1);
+    const bodyImg = scene.add.image(0, -8, look.golden ? 'pip-body-gold' : 'pip-body').setOrigin(0.5, 1);
     const cheekL = scene.add.image(-24, -58, 'pip-cheek');
     const cheekR = scene.add.image(38, -58, 'pip-cheek');
     this.eyes = scene.add.container(6, -82);
@@ -34,7 +34,12 @@ export class Player extends Phaser.GameObjects.Container {
     this.eyes.add([eyeL, eyeR, ...this.pupils]);
     this.mouth = scene.add.image(8, -56, 'pip-mouth-smile');
     this.sprout = scene.add.image(2, -112, 'pip-sprout').setOrigin(0.5, 0.95);
-    this.inner.add([this.legL, this.legR, bag, bodyImg, cheekL, cheekR, this.eyes, this.mouth, this.sprout]);
+    this.inner.add([this.legL, this.legR, bag, bodyImg, cheekL, cheekR, this.eyes, this.mouth]);
+    if (look.hat) {
+      // la pousse dépasse du chapeau de jardinier
+      this.sprout.setY(-150);
+      this.inner.add([this.sprout, scene.add.image(4, -104, 'hat-gardener').setScale(0.86)]);
+    } else this.inner.add(this.sprout);
     this.add([this.shadow, this.inner]);
     this.setScale(scale);
     scene.add.existing(this);
@@ -139,6 +144,14 @@ export class Player extends Phaser.GameObjects.Container {
     this.scene.tweens.add({ targets: this.inner, scaleY: 0.92, duration: 300, yoyo: true, hold: 500, ease: 'Sine.easeInOut' });
     this.scene.tweens.add({ targets: this.sprout, angle: this.facing * -30, duration: 300, yoyo: true, hold: 700 });
     this.scene.tweens.add({ targets: this.inner, angle: { from: -4, to: 4 }, duration: 120, yoyo: true, repeat: 2 });
+  }
+
+  /** Regarde à gauche puis à droite, étonné (impasse). */
+  lookAround() {
+    this.setMouth('o');
+    const seq: [number, number][] = [[-1, 0], [1, 0], [-1, -1], [0, 0]];
+    seq.forEach(([dx, dy], i) => this.scene.time.delayedCall(i * 320, () => this.look(dx, dy)));
+    if (!reduced()) this.scene.tweens.add({ targets: this.inner, scaleY: 1.08, duration: 140, yoyo: true });
   }
 
   recover() {

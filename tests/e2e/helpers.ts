@@ -1,7 +1,7 @@
 import { expect, type Page, type TestInfo } from '@playwright/test';
 
 export interface S {
-  level: number; pos: number; won: boolean; collected: number; bridgesOpen: boolean; doorsOpen: boolean;
+  level: number; key: string; kind: string; ranked: boolean; moves: number; pos: number; won: boolean; collected: number; bridgesOpen: boolean; doorsOpen: boolean;
   closed: number[]; steps: number; width: number; mode: string; history: number; fading: boolean;
 }
 
@@ -99,3 +99,17 @@ export async function shot(page: Page, info: TestInfo, name: string) {
 }
 
 export const idx = (w: number, x: number, y: number) => y * w + x;
+
+export const save = (page: Page) => page.evaluate(() => (window as any).__MAZEO__.save());
+
+export async function visible(page: Page, name: string) {
+  return page.evaluate((n) => !!(window as any).__MAZEO__.objectPage(n), name);
+}
+
+/** Joue la solution optimale du niveau courant (vrai geste de glisser). */
+export async function solveCurrent(page: Page, info: TestInfo) {
+  await waitIdle(page);
+  const st = (await state(page))!;
+  await drag(page, info, st.pos, await solution(page));
+  await waitIdle(page);
+}

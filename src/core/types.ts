@@ -16,8 +16,8 @@ export enum Cell {
 export type WallDecor = 'hedge' | 'tree' | 'flowers' | 'rock' | 'bush';
 
 export type CollectibleKind = 'duckling' | 'seed' | 'hedgehog' | 'bunny';
-export type ExitStyle = 'house' | 'mother-duck' | 'gate' | 'burrow';
-export type Theme = 'sunny' | 'flowers' | 'pond' | 'river' | 'botanic' | 'grand';
+export type ExitStyle = 'house' | 'mother-duck' | 'gate' | 'burrow' | 'beacon';
+export type Theme = 'sunny' | 'flowers' | 'pond' | 'river' | 'botanic' | 'grand' | 'challenge';
 
 export interface CollectibleDef {
   id: number;
@@ -27,17 +27,27 @@ export interface CollectibleDef {
 }
 
 export interface LevelDef {
+  /** Identifiant stable, ex. « chapter01-level03 » ou « puzzle-e03 ». */
+  key: string;
+  /** Version de la carte : à incrémenter dès que la carte change (les records restent comparables par version). */
+  version: number;
+  /** Numéro affiché (1, 2, 3…). */
   id: number;
   name: string;
   theme: Theme;
   difficulty: string;
   objective: string;
-  /** Lignes de la carte. Légende : voir levels/legend.ts */
+  /**
+   * Lignes de la carte (légende V4, voir core/grid.ts). Une bordure extérieure
+   * entièrement composée de « # » est retirée automatiquement.
+   */
   map: string[];
-  /** Type d'objet pour chaque lettre de collectible, dans l'ordre de lecture. */
+  /** Type des collectibles numérotés 1-9 (les lettres D et K sont déjà typées). */
   collectibles?: Record<string, CollectibleKind>;
   exitStyle: ExitStyle;
-  /** Conseils affichés au joueur (tutoriel naturel). */
+  /** Masquer « Annuler » quand il n'apporte rien (premier niveau). */
+  hideUndo?: boolean;
+  /** Conseils courts (tutoriel naturel). */
   hints?: { start?: string; firstMove?: string; stuck?: string; blockedExit?: string };
 }
 

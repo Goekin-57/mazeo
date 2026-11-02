@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { generateTexturesV4 } from './textures-v4';
 import { C } from './palette';
 import {
   canvas, type Ctx, ellipse, fillEllipse, flower, leaf, rGrad, rng, rr, shade, starPath, vGrad, withAlpha,
@@ -31,7 +32,8 @@ export function generateTextures(scene: Phaser.Scene) {
 
   // ---------- Personnage « Bourgeon » ----------
   add('shadow', 120, 44, (c) => fillEllipse(c, 60, 22, 58, 20, rGrad(c, 60, 22, 2, 58, [[0, 'rgba(40,60,30,0.38)'], [1, 'rgba(40,60,30,0)']])));
-  add('pip-body', 124, 120, drawPipBody);
+  add('pip-body', 124, 120, (c) => drawPipBody(c, false));
+  add('pip-body-gold', 124, 120, (c) => drawPipBody(c, true));
   add('pip-eye', 30, 36, (c) => {
     fillEllipse(c, 15, 18, 13.5, 16.5, '#3b4a3a');
     fillEllipse(c, 15, 18, 12, 15, rGrad(c, 15, 15, 2, 16, [[0, '#ffffff'], [1, '#e9eef0']]));
@@ -216,6 +218,7 @@ export function generateTextures(scene: Phaser.Scene) {
     motion: iconMotion,
   };
   Object.entries(icons).forEach(([k, d]) => add(`icon-${k}`, 72, 72, d));
+  generateTexturesV4(scene);
 }
 
 // =====================================================================
@@ -394,7 +397,7 @@ function drawBush(c: Ctx) {
 // Personnage
 // =====================================================================
 
-function drawPipBody(c: Ctx) {
+function drawPipBody(c: Ctx, gold: boolean) {
   const cx = 62, cy = 64;
   // corps rond
   fillEllipse(c, cx, cy + 3, 52, 50, '#c98f50');
@@ -409,7 +412,7 @@ function drawPipBody(c: Ctx) {
   c.save();
   ellipse(c, cx, cy, 52, 50);
   c.clip();
-  c.fillStyle = vGrad(c, cy + 18, cy + 36, [[0, '#8fe0d4'], [1, C.turquoiseDeep]]);
+  c.fillStyle = vGrad(c, cy + 18, cy + 36, gold ? [[0, '#ffe9a0'], [1, '#d99a1f']] : [[0, '#8fe0d4'], [1, C.turquoiseDeep]]);
   c.beginPath();
   c.moveTo(0, cy + 16);
   c.quadraticCurveTo(cx, cy + 34, 124, cy + 16);
@@ -426,10 +429,10 @@ function drawPipBody(c: Ctx) {
   c.restore();
   // nœud de l'écharpe
   rr(c, cx + 22, cy + 28, 14, 22, 6);
-  c.fillStyle = C.turquoiseDeep;
+  c.fillStyle = gold ? '#d99a1f' : C.turquoiseDeep;
   c.fill();
   rr(c, cx + 30, cy + 30, 12, 20, 6);
-  c.fillStyle = '#6fd0c4';
+  c.fillStyle = gold ? '#f7d35c' : '#6fd0c4';
   c.fill();
 }
 

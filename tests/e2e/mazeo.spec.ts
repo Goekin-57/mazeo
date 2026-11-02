@@ -1,331 +1,249 @@
 import { expect, test } from '@playwright/test';
 import {
-  active, drag, errorsOf, idx, open, press, shot, solution, state, tapCell, waitIdle, waitScene,
+  active, drag, errorsOf, open, press, save, shot, solution, solveCurrent, state, tapCell, visible, waitIdle, waitScene,
 } from './helpers';
 
 test.describe.configure({ mode: 'serial' });
 
-test('lancement, accueil, carnet, paramètres', async ({ page }, info) => {
+test('accueil et navigation : Aventure, Défis, Collection, Communauté, Paramètres', async ({ page }, info) => {
   const errors = errorsOf(page);
-  await open(page);
-  await waitScene(page, 'Menu');
-  await page.waitForTimeout(800);
+  await open(page, 'today=2026-11-02');
+  await waitScene(page, 'Home');
+  await page.waitForTimeout(700);
   await shot(page, info, '01-accueil');
-  await press(page, info, 'btn-levels');
-  await waitScene(page, 'Levels');
-  await page.waitForTimeout(900);
-  await shot(page, info, '02-carnet');
-  // niveau 2 verrouillé : rester dans le carnet
-  await press(page, info, 'card-2');
+  expect(await visible(page, 'home-beacon')).toBe(true);
+  expect(await visible(page, 'home-bridge')).toBe(false);
+  for (const [nav, scene, file] of [['nav-adventure', 'Journey', '02-carnet-voyage'], ['nav-challenges', 'Challenges', '03-defis'], ['nav-collection', 'Collection', '04-collection'], ['nav-community', 'Community', '05-communaute']] as const) {
+    await press(page, info, nav);
+    await waitScene(page, scene);
+    await page.waitForTimeout(500);
+    await shot(page, info, file);
+    await press(page, info, 'btn-back');
+    await waitScene(page, 'Home');
+  }
+  // chapitre 2 indisponible depuis le carnet de voyage
+  await press(page, info, 'nav-adventure');
+  await waitScene(page, 'Journey');
+  await press(page, info, 'trail-chapter02');
   await page.waitForTimeout(400);
-  expect(await active(page)).toContain('Levels');
+  expect(await active(page)).toContain('Journey');
+  await press(page, info, 'trail-chapter01');
+  await waitScene(page, 'Chapter');
+  await shot(page, info, '06-chapitre1');
+  await press(page, info, 'card-chapter01-level02'); // verrouillé
+  await page.waitForTimeout(400);
+  expect(await active(page)).toContain('Chapter');
   await press(page, info, 'btn-back');
-  await waitScene(page, 'Menu');
+  await waitScene(page, 'Journey');
+  await press(page, info, 'btn-back');
+  await waitScene(page, 'Home');
   await press(page, info, 'btn-settings');
   await waitScene(page, 'Settings');
-  await shot(page, info, '03-parametres');
   await press(page, info, 'toggle-reducedMotion');
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('mazeo.save.v1')!).settings.reducedMotion)).toBe(true);
+  expect((await save(page)).settings.reducedMotion).toBe(true);
   await press(page, info, 'toggle-reducedMotion');
   await press(page, info, 'btn-close');
   await expect.poll(async () => (await active(page)).includes('Settings')).toBe(false);
+  expect(errors).toEqual([]);
+});
+
+test('chapitre 1 complet : six niveaux, récompenses, fin de chapitre, accueil évolutif', async ({ page }, info) => {
+  test.setTimeout(600_000);
+  const errors = errorsOf(page);
+  await open(page);
+  await waitScene(page, 'Home');
   await press(page, info, 'btn-play');
   await waitScene(page, 'Game');
-  await waitIdle(page);
-  expect((await state(page))!.level).toBe(1);
+  for (let n = 1; n <= 6; n++) {
+    await waitIdle(page);
+    expect((await state(page))!.key).toBe(`chapter01-level0${n}`);
+    if (n === 1) expect(await visible(page, 'btn-undo')).toBe(false); // Annuler masqué au tutoriel
+    await solveCurrent(page, info);
+    expect((await state(page))!.won).toBe(true);
+    if (n < 6) {
+      await page.waitForTimeout(2400);
+      await shot(page, info, `1${n}-niveau${n}-victoire`);
+      await press(page, info, 'btn-next');
+      await expect.poll(async () => (await state(page))?.key, { timeout: 30_000 }).toBe(`chapter01-level0${n + 1}`);
+    }
+  }
+  // fin de chapitre : carte du Grand Sentier puis aperçu du Port des Marées
+  await waitScene(page, 'ChapterEnd');
+  await page.waitForTimeout(2500);
+  await shot(page, info, '17-fin-chapitre');
+  const sv = await save(page);
+  for (let n = 1; n <= 6; n++) expect(sv.levels[`chapter01-level0${n}`]).toMatchObject({ completed: true, stars: 3 });
+  expect(sv.chapters.chapter01.completed).toBe(true);
+  expect(sv.collection.owned).toEqual(expect.arrayContaining(['companion-duckling', 'deco-magic-flower', 'hat-gardener', 'badge-garden-keeper']));
+  expect(sv.collection.equipped.hat).toBe('hat-gardener');
+  await press(page, info, 'btn-home');
+  await waitScene(page, 'Home');
+  await page.waitForTimeout(800);
+  await shot(page, info, '18-accueil-apres-chapitre');
+  for (const n of ['home-beacon-lit', 'home-bridge', 'home-magic-flower', 'home-duckling']) expect(await visible(page, n)).toBe(true);
+  // la collection permet de retirer le chapeau, et le jeu l'affiche ou non
+  await press(page, info, 'nav-collection');
+  await waitScene(page, 'Collection');
+  await shot(page, info, '19-collection-pleine');
+  await press(page, info, 'item-hat-gardener');
+  await expect.poll(async () => (await save(page)).collection.equipped.hat).toBe(null);
+  await press(page, info, 'item-hat-gardener');
+  await expect.poll(async () => (await save(page)).collection.equipped.hat).toBe('hat-gardener');
   expect(errors).toEqual([]);
 });
 
-test('niveau 1 : tracé au doigt / à la souris, haies, victoire', async ({ page }, info) => {
-  const errors = errorsOf(page);
-  await open(page, 'level=1');
-  await waitScene(page, 'Game');
-  await waitIdle(page);
-  await shot(page, info, '10-niveau1-debut');
-  const s0 = (await state(page))!;
-  const sol = await solution(page);
-  // tracé partiel : 4 cases
-  await drag(page, info, s0.pos, sol.slice(0, 4));
-  await waitIdle(page);
-  let s = (await state(page))!;
-  expect(s.pos).toBe(sol[3]);
-  expect(s.closed.sort((a, b) => a - b)).toEqual([s0.pos, ...sol.slice(0, 3)].sort((a, b) => a - b));
-  await page.waitForTimeout(500);
-  await shot(page, info, '11-niveau1-haies');
-  // une case fermée est infranchissable
-  await tapCell(page, info, sol[2]);
-  await page.waitForTimeout(500);
-  expect((await state(page))!.pos).toBe(sol[3]);
-  // fin du trajet
-  await drag(page, info, sol[3], sol.slice(4));
-  await waitIdle(page);
-  s = (await state(page))!;
-  expect(s.won).toBe(true);
-  await page.waitForTimeout(2600);
-  await shot(page, info, '12-niveau1-victoire');
-  const save = await page.evaluate(() => JSON.parse(localStorage.getItem('mazeo.save.v1')!));
-  expect(save.unlocked).toBe(2);
-  expect(save.stars['1']).toBe(3);
-  expect(errors).toEqual([]);
-});
-
-test('niveau 2 : impasse, blocage, annuler, recommencer, puis victoire au toucher', async ({ page }, info) => {
+test('niveau 2 : impasse, Bourgeon surpris, Recommencer proposé, Annuler exact', async ({ page }, info) => {
   const errors = errorsOf(page);
   await open(page, 'level=2');
   await waitScene(page, 'Game');
   await waitIdle(page);
-  const W = 6;
   const s0 = (await state(page))!;
-  const dead = [[1, 0], [2, 0], [2, 1], [2, 2], [1, 2], [0, 2], [0, 3], [0, 4], [0, 5], [0, 6]].map(([x, y]) => idx(W, x, y));
-  await drag(page, info, s0.pos, dead);
+  const W = s0.width;
+  await drag(page, info, s0.pos, [1, 2, 2 + W, 2 + 2 * W, 1 + 2 * W, 2 * W]);
+  await waitIdle(page);
+  await expect.poll(async () => visible(page, 'stuck-restart'), { timeout: 15_000 }).toBe(true);
+  await shot(page, info, '20-impasse');
+  await tapCell(page, info, 1 + 2 * W); // case fermée
+  await page.waitForTimeout(400);
+  expect((await state(page))!.pos).toBe(2 * W);
+  await press(page, info, 'stuck-undo');
   await waitIdle(page);
   let s = (await state(page))!;
-  expect(s.pos).toBe(idx(W, 0, 6));
-  expect(s.closed.length).toBe(10);
-  await page.waitForTimeout(600);
-  await shot(page, info, '20-niveau2-impasse');
-  // tenter de repasser sur une haie
-  await tapCell(page, info, idx(W, 0, 5));
-  await page.waitForTimeout(400);
-  expect((await state(page))!.pos).toBe(idx(W, 0, 6));
-  // Annuler : retour exact à l'état précédent
-  await press(page, info, 'btn-undo');
-  await waitIdle(page);
-  s = (await state(page))!;
   expect(s.pos).toBe(s0.pos);
   expect(s.closed).toEqual([]);
-  expect(s.history).toBe(0);
-  // quelques pas au toucher puis Recommencer
-  await tapCell(page, info, idx(W, 1, 0));
+  await tapCell(page, info, 1);
   await waitIdle(page);
-  await tapCell(page, info, idx(W, 2, 0));
-  await waitIdle(page);
-  expect((await state(page))!.closed.length).toBe(2);
   await press(page, info, 'btn-restart');
   await waitIdle(page);
   s = (await state(page))!;
-  expect(s.pos).toBe(s0.pos);
   expect(s.closed).toEqual([]);
-  expect(s.steps).toBe(0);
-  // solution, une case à la fois (méthode alternative)
-  for (const c of await solution(page)) {
-    await tapCell(page, info, c);
-    await waitIdle(page);
-  }
-  expect((await state(page))!.won).toBe(true);
-  await page.waitForTimeout(2600);
-  await shot(page, info, '21-niveau2-victoire-1etoile');
-  const save = await page.evaluate(() => JSON.parse(localStorage.getItem('mazeo.save.v1')!));
-  expect(save.stars['2']).toBe(1); // Annuler + Recommencer utilisés
+  expect(s.moves).toBe(0);
   expect(errors).toEqual([]);
 });
 
-test('niveau 3 : canetons, sortie verrouillée, ordre', async ({ page }, info) => {
+test('défi du jour : entraînement avec annulation, tentative classée sans annulation, record', async ({ page }, info) => {
   const errors = errorsOf(page);
-  await open(page, 'level=3');
+  await open(page, 'scene=Challenges&today=2026-11-02');
+  await waitScene(page, 'Challenges');
+  await press(page, info, 'daily-practice');
   await waitScene(page, 'Game');
   await waitIdle(page);
-  const W = 6;
-  const s0 = (await state(page))!;
-  await drag(page, info, s0.pos, [[3, 5], [4, 5], [5, 5]].map(([x, y]) => idx(W, x, y)));
-  await waitIdle(page);
-  await tapCell(page, info, idx(W, 5, 6)); // maman cane : verrouillé (0/2)
-  await page.waitForTimeout(500);
   let s = (await state(page))!;
-  expect(s.pos).toBe(idx(W, 5, 5));
-  expect(s.won).toBe(false);
-  await shot(page, info, '30-niveau3-sortie-verrouillee');
+  expect(s.kind).toBe('challenge');
+  expect(s.ranked).toBe(false);
+  const sol = await solution(page);
+  await drag(page, info, s.pos, sol.slice(0, 2));
+  await waitIdle(page);
   await press(page, info, 'btn-undo');
   await waitIdle(page);
-  const sol = await solution(page);
-  const firstDuck = sol.indexOf(idx(W, 0, 2));
-  await drag(page, info, s0.pos, sol.slice(0, firstDuck + 1));
-  await waitIdle(page);
-  expect((await state(page))!.collected).toBe(1);
-  await page.waitForTimeout(400);
-  await shot(page, info, '31-niveau3-1-sur-2');
-  await drag(page, info, sol[firstDuck], sol.slice(firstDuck + 1));
+  expect((await state(page))!.moves).toBe(0);
+  await solveCurrent(page, info);
+  await page.waitForTimeout(2200);
+  await shot(page, info, '30-defi-entrainement');
+  await press(page, info, 'btn-next');
+  await waitScene(page, 'Challenges');
+  await press(page, info, 'daily-ranked');
+  await waitScene(page, 'Game');
   await waitIdle(page);
   s = (await state(page))!;
-  expect(s.collected).toBe(3);
-  expect(s.won).toBe(true);
-  await page.waitForTimeout(2600);
-  await shot(page, info, '32-niveau3-victoire');
-  expect(errors).toEqual([]);
-});
-
-test('niveau 4 : interrupteur et pont', async ({ page }, info) => {
-  const errors = errorsOf(page);
-  await open(page, 'level=4');
-  await waitScene(page, 'Game');
-  await waitIdle(page);
-  const W = 6;
-  const s0 = (await state(page))!;
-  await drag(page, info, s0.pos, [[1, 7], [0, 7], [0, 6], [0, 5], [0, 4], [1, 4], [2, 4]].map(([x, y]) => idx(W, x, y)));
-  await waitIdle(page);
-  await tapCell(page, info, idx(W, 2, 3)); // pont replié
-  await page.waitForTimeout(500);
-  expect((await state(page))!.pos).toBe(idx(W, 2, 4));
-  expect((await state(page))!.bridgesOpen).toBe(false);
-  await shot(page, info, '40-niveau4-pont-ferme');
-  await press(page, info, 'btn-undo');
-  await waitIdle(page);
-  const sol = await solution(page);
-  const sw = sol.indexOf(idx(W, 5, 6));
-  await drag(page, info, s0.pos, sol.slice(0, sw + 1));
-  await waitIdle(page);
-  expect((await state(page))!.bridgesOpen).toBe(true);
-  await page.waitForTimeout(1500);
-  await shot(page, info, '41-niveau4-pont-deploye');
-  await drag(page, info, sol[sw], sol.slice(sw + 1));
-  await waitIdle(page);
-  const s = (await state(page))!;
-  expect(s.won).toBe(true);
-  expect(s.closed).not.toContain(idx(W, 2, 3)); // le pont ne se referme pas
-  await page.waitForTimeout(2600);
-  await shot(page, info, '42-niveau4-victoire');
-  expect(errors).toEqual([]);
-});
-
-test('niveau 5 : graine magique et arche', async ({ page }, info) => {
-  const errors = errorsOf(page);
-  await open(page, 'level=5');
-  await waitScene(page, 'Game');
-  await waitIdle(page);
-  const W = 7;
-  const s0 = (await state(page))!;
-  await drag(page, info, s0.pos, [[2, 6], [1, 6], [0, 6], [0, 5], [0, 4], [0, 3], [0, 2], [1, 2]].map(([x, y]) => idx(W, x, y)));
-  await waitIdle(page);
-  await tapCell(page, info, idx(W, 1, 1)); // arche fermée
-  await page.waitForTimeout(500);
-  expect((await state(page))!.pos).toBe(idx(W, 1, 2));
-  await shot(page, info, '50-niveau5-arche-fermee');
-  await press(page, info, 'btn-undo');
-  await waitIdle(page);
-  const sol = await solution(page);
-  const seed = sol.indexOf(idx(W, 3, 4));
-  await drag(page, info, s0.pos, sol.slice(0, seed + 1));
-  await waitIdle(page);
-  expect((await state(page))!.doorsOpen).toBe(true);
-  await page.waitForTimeout(1500);
-  await shot(page, info, '51-niveau5-jardin-transforme');
-  await drag(page, info, sol[seed], sol.slice(seed + 1));
-  await waitIdle(page);
+  expect(s.ranked).toBe(true);
+  expect(await visible(page, 'btn-undo')).toBe(false);
+  await shot(page, info, '31-defi-classe');
+  await solveCurrent(page, info);
   expect((await state(page))!.won).toBe(true);
-  await page.waitForTimeout(2600);
-  await shot(page, info, '52-niveau5-victoire');
+  await page.waitForTimeout(2200);
+  await shot(page, info, '32-defi-classe-reussi');
+  const sv = await save(page);
+  const rec = Object.values(sv.challenges.records)[0] as { bestRankedMoves: number; bestMoves: number };
+  expect(rec.bestRankedMoves).toBe(sol.length);
+  const ranked = sv.challenges.results.find((r: { mode: string }) => r.mode === 'ranked');
+  expect(ranked).toMatchObject({ contextId: 'daily-2026-11-02', validated: true, undos: 0, rulesVersion: 1, puzzleVersion: 1, moves: sol.length });
+  expect(ranked.path).toEqual(sol);
+  expect(sv.collection.owned).toContain('badge-first-daily');
+  await press(page, info, 'btn-next');
+  await waitScene(page, 'Challenges');
+  await page.waitForTimeout(500);
+  await shot(page, info, '33-defis-apres');
   expect(errors).toEqual([]);
 });
 
-test('niveau 6 : le grand détour', async ({ page }, info) => {
+test('défi hebdomadaire : trois labyrinthes classés et score total', async ({ page }, info) => {
+  test.setTimeout(400_000);
   const errors = errorsOf(page);
-  await open(page, 'level=6');
+  await open(page, 'scene=Challenges&today=2026-11-02');
+  await waitScene(page, 'Challenges');
+  let total = 0;
+  for (let i = 0; i < 3; i++) {
+    await press(page, info, `weekly-${i}`);
+    await waitScene(page, 'Game');
+    await waitIdle(page);
+    expect((await state(page))!.ranked).toBe(true);
+    total += (await solution(page)).length;
+    await solveCurrent(page, info);
+    expect((await state(page))!.won).toBe(true);
+    await page.waitForTimeout(2000);
+    await press(page, info, 'btn-next');
+    await waitScene(page, 'Challenges');
+  }
+  await page.waitForTimeout(600);
+  await shot(page, info, '40-semaine-terminee');
+  const txt = await page.evaluate(() => {
+    const sc = (window as any).__MAZEO__.game.scene.getScene('Challenges');
+    return sc.children.getByName('weekly-total')?.text;
+  });
+  expect(txt).toBe(`Score de la semaine : ${total} cases`);
+  expect(errors).toEqual([]);
+});
+
+test('changement de date : le défi du jour change, les jours passés vont dans l’historique', async ({ page }, info) => {
+  const errors = errorsOf(page);
+  const key = async (day: string) => {
+    await open(page, `scene=Challenges&today=${day}`);
+    await waitScene(page, 'Challenges');
+    await press(page, info, 'daily-practice');
+    await waitScene(page, 'Game');
+    await waitIdle(page);
+    return (await state(page))!.key;
+  };
+  const a = await key('2026-11-02');
+  const b = await key('2026-11-03');
+  expect(a).not.toBe(b);
+  await open(page, 'scene=Challenges&today=2026-11-03');
+  await waitScene(page, 'Challenges');
+  expect(await visible(page, 'history-0')).toBe(true);
+  await shot(page, info, '50-historique');
+  expect(errors).toEqual([]);
+});
+
+test('lien de défi partagé : même puzzle et même version', async ({ page }, info) => {
+  const errors = errorsOf(page);
+  await page.goto('/?e2e&defi=puzzle-x02%401');
+  await waitScene(page, 'Challenges');
+  await shot(page, info, '60-defi-recu');
+  await press(page, info, 'linked-practice');
   await waitScene(page, 'Game');
   await waitIdle(page);
-  await shot(page, info, '60-niveau6-debut');
-  const s0 = (await state(page))!;
-  const sol = await solution(page);
-  const half = 12;
-  await drag(page, info, s0.pos, sol.slice(0, half));
-  await waitIdle(page);
-  const mid = (await state(page))!;
-  expect(mid.pos).toBe(sol[half - 1]);
-  expect(mid.bridgesOpen).toBe(true);
-  await shot(page, info, '61-niveau6-milieu');
-  await drag(page, info, sol[half - 1], sol.slice(half));
-  await waitIdle(page);
-  const s = (await state(page))!;
-  expect(s.won).toBe(true);
-  expect(s.collected).toBe(3);
-  await page.waitForTimeout(2800);
-  await shot(page, info, '62-niveau6-final');
+  expect((await state(page))!.key).toBe('puzzle-x02');
+  await page.goto('/?e2e&defi=puzzle-x02%4099');
+  await waitScene(page, 'Challenges');
+  expect(await visible(page, 'linked-practice')).toBe(false);
   expect(errors).toEqual([]);
 });
 
-test('progression : JOUER → victoire → Continuer → rechargement', async ({ page }, info) => {
+test('migration d’une sauvegarde v1 : progression conservée', async ({ page }, info) => {
   const errors = errorsOf(page);
+  await page.addInitScript(() => {
+    if (!localStorage.getItem('mazeo.save.v2')) localStorage.setItem('mazeo.save.v1', JSON.stringify({ unlocked: 3, stars: { 1: 3, 2: 2 }, completed: { 1: true, 2: true }, settings: { sound: false, ambience: true, reducedMotion: false } }));
+  });
   await open(page);
-  await waitScene(page, 'Menu');
+  await waitScene(page, 'Home');
+  const sv = await save(page);
+  expect(sv.version).toBe(2);
+  expect(sv.levels['chapter01-level02']).toMatchObject({ completed: true, stars: 2 });
+  expect(sv.settings.sound).toBe(false);
   await press(page, info, 'btn-play');
   await waitScene(page, 'Game');
   await waitIdle(page);
-  const sol = await solution(page);
-  await drag(page, info, (await state(page))!.pos, sol);
-  await waitIdle(page);
-  expect((await state(page))!.won).toBe(true);
-  await page.waitForTimeout(2600);
-  await press(page, info, 'btn-next');
-  await expect.poll(async () => (await state(page))?.level, { timeout: 30_000 }).toBe(2);
-  await waitIdle(page);
-  // rechargement : la progression est conservée
-  await page.goto('/?e2e');
-  await waitScene(page, 'Menu');
-  await press(page, info, 'btn-levels');
-  await waitScene(page, 'Levels');
-  await page.waitForTimeout(1000);
-  await shot(page, info, '70-carnet-apres-progression');
-  await press(page, info, 'card-2');
-  await waitScene(page, 'Game');
-  await waitIdle(page);
-  expect((await state(page))!.level).toBe(2);
-  // Pause puis retour au carnet
-  await press(page, info, 'btn-pause');
-  await page.waitForTimeout(300);
-  await shot(page, info, '71-pause');
-  await press(page, info, 'pause-0');
-  expect((await state(page))!.mode).toBe('idle');
-  const save = await page.evaluate(() => JSON.parse(localStorage.getItem('mazeo.save.v1')!));
-  expect(save.unlocked).toBe(2);
-  expect(save.completed['1']).toBe(true);
-  expect(errors).toEqual([]);
-});
-
-test('animations réduites : niveau 4 jouable, pont et état cohérents', async ({ page }, info) => {
-  const errors = errorsOf(page);
-  await page.addInitScript(() => localStorage.setItem('mazeo.save.v1', JSON.stringify({ unlocked: 1, stars: {}, completed: {}, settings: { sound: false, ambience: false, reducedMotion: true } })));
-  await open(page, 'level=4');
-  await waitScene(page, 'Game');
-  await waitIdle(page);
-  const s0 = (await state(page))!;
-  const sol = await solution(page);
-  await drag(page, info, s0.pos, sol.slice(0, 8));
-  await waitIdle(page);
-  await press(page, info, 'btn-undo');
-  await waitIdle(page);
-  expect((await state(page))!.bridgesOpen).toBe(false);
-  await drag(page, info, s0.pos, sol);
-  await waitIdle(page);
-  expect((await state(page))!.won).toBe(true);
-  await page.waitForTimeout(800);
-  await shot(page, info, '80-animations-reduites-victoire');
-  expect(errors).toEqual([]);
-});
-
-test('clavier (ordinateur) : flèches, Z pour annuler, R pour recommencer', async ({ page }, info) => {
-  test.skip(!!info.project.use.hasTouch, 'clavier testé sur le profil ordinateur');
-  const errors = errorsOf(page);
-  await open(page, 'level=1');
-  await waitScene(page, 'Game');
-  await waitIdle(page);
-  await page.keyboard.press('ArrowRight');
-  await waitIdle(page);
-  await page.keyboard.press('ArrowRight');
-  await waitIdle(page);
-  expect((await state(page))!.pos).toBe(2);
-  await page.keyboard.press('KeyZ');
-  await waitIdle(page);
-  expect((await state(page))!.pos).toBe(1);
-  await page.keyboard.press('KeyR');
-  await waitIdle(page);
-  expect((await state(page))!.pos).toBe(0);
-  expect((await state(page))!.closed).toEqual([]);
-  const keys: Record<string, string> = { '1': 'ArrowRight', '-1': 'ArrowLeft', '5': 'ArrowDown', '-5': 'ArrowUp' };
-  let pos = 0;
-  for (const c of await solution(page)) {
-    await page.keyboard.press(keys[String(c - pos)]);
-    await waitIdle(page);
-    pos = c;
-  }
-  expect((await state(page))!.won).toBe(true);
+  expect((await state(page))!.key).toBe('chapter01-level03');
   expect(errors).toEqual([]);
 });

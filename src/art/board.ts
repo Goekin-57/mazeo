@@ -25,6 +25,7 @@ const GRASS: Record<Theme, [string, string, string]> = {
   river: ['#acd78a', '#84c262', '#6aa952'],
   botanic: ['#b4d79a', '#92c27a', '#78a865'],
   grand: ['#b5de8c', '#8ccb64', '#74b354'],
+  challenge: ['#b9dc9a', '#93c873', '#7aae5f'],
 };
 
 const isPath = (c: Cell) => c !== Cell.Wall && c !== Cell.Water && c !== Cell.Bridge;

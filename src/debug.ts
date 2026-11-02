@@ -19,7 +19,7 @@ export function installDebugApi(game: Phaser.Game) {
       if (!s?.sys.isActive() && !s?.sys.isPaused()) return null;
       const st = s.state;
       return {
-        level: s.def.id, pos: st.pos, won: st.won, collected: st.collected, bridgesOpen: st.bridgesOpen,
+        level: s.def.id, key: s.def.key, kind: s.req.kind, ranked: s.ranked, moves: s.moves, pos: st.pos, won: st.won, collected: st.collected, bridgesOpen: st.bridgesOpen,
         doorsOpen: st.doorsOpen, closed: [...st.closed].map((v, i) => (v ? i : -1)).filter((i) => i >= 0), steps: st.steps,
         width: s.grid.width, mode: s.currentMode, history: s.historySize,
         fading: s.cameras.main.fadeEffect.isRunning,
@@ -35,6 +35,9 @@ export function installDebugApi(game: Phaser.Game) {
     solution() {
       const s = gs();
       return solve(s.grid).shortest;
+    },
+    save() {
+      try { return JSON.parse(localStorage.getItem('mazeo.save.v2') ?? 'null'); } catch { return null; }
     },
     xy(cell: number) {
       return xy(gs().grid, cell);

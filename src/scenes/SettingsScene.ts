@@ -6,13 +6,13 @@ import { button, centerCamera, toast, toggle, txt, W, H } from '../ui/ui';
 
 /** Paramètres (superposé à l'écran appelant). */
 export class SettingsScene extends Phaser.Scene {
-  private from = 'Menu';
+  private from = 'Home';
   constructor() {
     super('Settings');
   }
 
   init(data: { from?: string }) {
-    this.from = data.from ?? 'Menu';
+    this.from = data.from ?? 'Home';
   }
 
   create() {
@@ -54,7 +54,7 @@ export class SettingsScene extends Phaser.Scene {
         this.time.delayedCall(2500, () => (confirm = false));
         return;
       }
-      Save.reset();
+      Save.resetProgress();
       toast(this, 'Progression effacée', 1640, 1600);
       confirm = false;
     }, 'btn-reset');
@@ -64,7 +64,7 @@ export class SettingsScene extends Phaser.Scene {
 
   private close() {
     this.scene.resume(this.from);
-    if (this.from === 'Menu' || this.from === 'Levels') this.scene.get(this.from).scene.restart();
+    if (this.from === 'Home') this.scene.get(this.from).scene.restart();
     this.scene.stop();
   }
 }

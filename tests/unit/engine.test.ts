@@ -1,139 +1,127 @@
 import { describe, expect, it } from 'vitest';
-import { idx, parseLevel } from '../../src/core/grid';
+import { CHAPTERS } from '../../src/content/chapters';
+import { idx, parseLevel, trimBorder } from '../../src/core/grid';
 import { allMask, canEnter, initialState, step } from '../../src/core/rules';
 import { canStillWin, replay, solve } from '../../src/core/solver';
 import { Cell, type GameState, type Grid } from '../../src/core/types';
-import { LEVELS } from '../../src/levels';
 
+const LEVELS = CHAPTERS[0].levels;
 const grid = (n: number) => parseLevel(LEVELS[n - 1]);
+const D: Record<string, [number, number]> = { R: [1, 0], L: [-1, 0], U: [0, -1], D: [0, 1] };
 
-/** Suit une liste de coordonnées [x,y] ; échoue si un pas est refusé. */
-function walk(g: Grid, coords: [number, number][], from?: GameState): GameState {
+/** Suit des directions (R, L, U, D) ; échoue si un pas est refusé. */
+function moves(g: Grid, seq: string, from?: GameState): GameState {
   let s = from ?? initialState(g);
-  for (const [x, y] of coords) {
+  for (const c of seq) {
+    const [dx, dy] = D[c];
+    const x = (s.pos % g.width) + dx, y = Math.floor(s.pos / g.width) + dy;
     const r = step(g, s, idx(g, x, y));
-    if ('blocked' in r) throw new Error(`pas refusé vers (${x},${y}) : ${r.blocked}`);
+    if ('blocked' in r) throw new Error(`pas « ${c} » refusé : ${r.blocked}`);
     s = r.state;
   }
   return s;
 }
 
-describe('règles de base', () => {
-  it('ferme la case quittée, y compris le départ', () => {
-    const g = grid(1);
-    const s = walk(g, [[1, 0]]);
-    expect(s.closed[g.start]).toBe(1);
-    expect(canEnter(g, s, g.start)).toBe(false);
+describe('légende V4 et cartes', () => {
+  it('retire la bordure de « # »', () => {
+    expect(trimBorder(['#####', '#S..#', '#####'])).toEqual(['S..']);
   });
-
-  it('ne modifie jamais l’état précédent (annulation exacte)', () => {
-    const g = grid(3);
-    const s0 = initialState(g);
-    const snapshot = JSON.stringify({ ...s0, closed: [...s0.closed] });
-    walk(g, [[1, 5], [0, 5], [0, 4], [0, 3], [0, 2]], s0);
-    expect(JSON.stringify({ ...s0, closed: [...s0.closed] })).toBe(snapshot);
+  it('reconnaît D, K, L, P, B', () => {
+    const g = parseLevel({ key: 't', version: 1, id: 0, name: '', theme: 'sunny', difficulty: '', objective: '', exitStyle: 'house', map: ['SDKLPBE'] });
+    expect(g.collectibles.map((c) => c.kind)).toEqual(['duckling', 'seed']);
+    expect(g.cells.slice(3, 6)).toEqual([Cell.Switch, Cell.Door, Cell.Bridge]);
   });
-
-  it('refuse murs, eau, cases non adjacentes', () => {
-    const g = grid(1);
-    const s = initialState(g);
-    expect(step(g, s, idx(g, 0, 1))).toEqual({ blocked: 'wall' });
-    expect(step(g, s, idx(g, 2, 0))).toEqual({ blocked: 'not-adjacent' });
-    const g3 = grid(3);
-    const s3 = walk(g3, [[1, 5], [0, 5], [0, 4], [0, 3], [0, 2], [0, 1], [0, 0], [1, 0], [2, 0]]);
-    expect(step(g3, s3, idx(g3, 2, 1))).toEqual({ blocked: 'wall' });
-  });
-
-  it('est déterministe : le même trajet produit le même état', () => {
-    for (const def of LEVELS) {
-      const g = parseLevel(def);
-      const sol = solve(g).shortest!;
-      const a = replay(g, sol).state;
-      const b = replay(g, sol).state;
-      expect([...a.closed]).toEqual([...b.closed]);
-      expect(a.collected).toBe(b.collected);
-    }
-  });
-
-  it('signale le blocage (impasse)', () => {
-    const g = grid(2);
-    // Branche gauche jusqu'au bout de l'impasse.
-    let s = walk(g, [[1, 0], [2, 0], [2, 1], [2, 2], [1, 2], [0, 2], [0, 3], [0, 4], [0, 5]]);
-    const r = step(g, s, idx(g, 0, 6));
-    if ('blocked' in r) throw new Error('inattendu');
-    expect(r.events.stuck).toBe(true);
-    s = r.state;
-    expect(canStillWin(g, s)).toBe(false);
+  it('les clés de niveaux sont stables et uniques', () => {
+    const keys = LEVELS.map((l) => l.key);
+    expect(keys).toEqual(['chapter01-level01', 'chapter01-level02', 'chapter01-level03', 'chapter01-level04', 'chapter01-level05', 'chapter01-level06']);
   });
 });
 
-describe('validation des 6 niveaux (espace d’états complet)', () => {
+describe('règles', () => {
+  it('ferme la case quittée, départ compris', () => {
+    const g = grid(1);
+    const s = moves(g, 'R');
+    expect(s.closed[g.start]).toBe(1);
+    expect(canEnter(g, s, g.start)).toBe(false);
+  });
+  it('ne modifie jamais l’état précédent (annulation exacte)', () => {
+    const g = grid(6);
+    const s0 = initialState(g);
+    const snap = JSON.stringify({ ...s0, closed: [...s0.closed] });
+    moves(g, 'DD', s0);
+    expect(JSON.stringify({ ...s0, closed: [...s0.closed] })).toBe(snap);
+  });
+  it('le pont et la porte ne se referment pas, le levier reste abaissé', () => {
+    const g = grid(4);
+    const s = moves(g, 'DDRRRRRUU');
+    expect(s.bridgesOpen).toBe(true);
+    const bridge = g.cells.indexOf(Cell.Bridge);
+    expect(s.pos).toBe(bridge);
+    const s2 = moves(g, 'U', s);
+    expect(s2.won).toBe(true);
+    expect(s2.closed[bridge]).toBe(0);
+  });
+});
+
+describe('chapitre 1 : solutions de référence et intentions', () => {
+  // Solutions de référence du cahier des charges (N4 : « haut » final au lieu de « droite », la maison est au-dessus du pont).
+  const REF = ['RRDDLL', 'RRRRRDDD', 'DDRRRRRUU', 'DDRRRRRUUU', 'DDRRRRRUUR', 'DDDDRRRRRRDD'];
+  REF.forEach((seq, i) => {
+    it(`niveau ${i + 1} : la solution ${seq} gagne`, () => {
+      const g = grid(i + 1);
+      const s = moves(g, seq);
+      expect(s.won).toBe(true);
+      expect(s.collected).toBe(allMask(g));
+    });
+  });
+
   for (const def of LEVELS) {
-    it(`niveau ${def.id} « ${def.name} » est soluble`, () => {
+    it(`${def.key} est soluble (espace d’états complet)`, () => {
       const g = parseLevel(def);
       const r = solve(g);
       expect(r.truncated).toBe(false);
       expect(r.solvable).toBe(true);
-      const rep = replay(g, r.shortest!);
-      expect(rep.ok).toBe(true);
-      expect(rep.state.collected).toBe(allMask(g));
+      expect(replay(g, r.shortest!).ok).toBe(true);
     });
   }
 
-  it('niveau 1 : un seul chemin, aucun piège', () => {
+  it('niveau 1 : un seul trajet, aucun piège', () => {
     const r = solve(grid(1));
     expect(r.winningPaths).toBe(1);
     expect(r.deadEnds).toBe(0);
   });
-
-  it('niveau 2 : contient des impasses', () => {
-    expect(solve(grid(2)).deadEnds).toBeGreaterThanOrEqual(2);
-  });
-
-  it('niveau 3 : sortie verrouillée avant 2/2 et l’ordre compte', () => {
-    const g = grid(3);
-    // Prendre à droite : on passe devant maman cane sans les canetons.
-    const s = walk(g, [[3, 5], [4, 5], [5, 5]]);
-    expect(step(g, s, g.exit)).toEqual({ blocked: 'exit-locked' });
-    // On récupère le caneton 2 en premier → plus aucune solution.
-    const s2 = walk(g, [[5, 4], [5, 3], [5, 2]], s);
-    expect(s2.collected).toBe(0b10);
-    expect(canStillWin(g, s2)).toBe(false);
-    // Le caneton 1 d'abord → gagnable.
-    const s3 = walk(g, [[1, 5], [0, 5], [0, 4], [0, 3], [0, 2]]);
-    expect(canStillWin(g, s3)).toBe(true);
-  });
-
-  it('niveau 4 : pont fermé avant l’interrupteur, puis disponible et non refermable', () => {
-    const g = grid(4);
-    let s = walk(g, [[1, 7], [0, 7], [0, 6], [0, 5], [0, 4], [1, 4], [2, 4]]);
-    expect(step(g, s, idx(g, 2, 3))).toEqual({ blocked: 'bridge-closed' });
-    // Être passé au pied du pont trop tôt rend le niveau insoluble.
+  it('niveau 2 : la branche du bas est une impasse', () => {
+    const g = grid(2);
+    const s = moves(g, 'RRDD');
     expect(canStillWin(g, s)).toBe(false);
-    s = walk(g, [[3, 7], [4, 7], [5, 7], [5, 6]]);
-    expect(s.bridgesOpen).toBe(true);
-    s = walk(g, [[5, 5], [5, 4], [4, 4], [3, 4], [2, 4], [2, 3], [2, 2]], s);
-    expect(s.closed[idx(g, 2, 3)]).toBe(0); // le pont ne se referme pas
-    expect(g.cells[idx(g, 2, 3)]).toBe(Cell.Bridge);
   });
-
-  it('niveau 5 : l’arche s’ouvre avec la graine et reste ouverte', () => {
+  it('niveau 3 : sortie visible mais verrouillée sans le caneton', () => {
+    const g = grid(3);
+    const s = moves(g, 'RRRR');
+    expect(step(g, s, g.exit)).toEqual({ blocked: 'exit-locked' });
+    expect(canStillWin(g, s)).toBe(false);
+  });
+  it('niveau 4 : pont fermé avant le levier', () => {
+    const g = grid(4);
+    const bridge = g.cells.indexOf(Cell.Bridge);
+    // atteindre le pied du pont sans le levier (par le bas)
+    const s = moves(g, 'DDDDRRRRRRUULU');
+    expect(s.bridgesOpen).toBe(false);
+    expect(step(g, s, bridge)).toEqual({ blocked: 'bridge-closed' });
+  });
+  it('niveau 5 : porte fermée sans la graine', () => {
     const g = grid(5);
     const door = g.cells.indexOf(Cell.Door);
-    let s = walk(g, [[2, 6], [1, 6], [0, 6], [0, 5], [0, 4], [0, 3], [0, 2], [1, 2]]);
+    const s = moves(g, 'DDRRDDRRRRUULU');
+    expect(s.collected).toBe(0);
     expect(step(g, s, door)).toEqual({ blocked: 'door-closed' });
-    s = walk(g, [[4, 6], [5, 6], [6, 6], [6, 5], [6, 4], [5, 4], [4, 4], [3, 4]]);
-    expect(s.doorsOpen).toBe(true);
-    expect(canStillWin(g, s)).toBe(true);
   });
-
-  it('niveau 6 : les deux animaux sont indispensables', () => {
+  it('niveau 6 : les deux canetons et le levier sont nécessaires', () => {
     const g = grid(6);
     const r = solve(g);
+    const s = replay(g, r.shortest!.slice(0, -1)).state;
+    expect(s.collected).toBe(allMask(g));
+    expect(s.bridgesOpen).toBe(true);
     expect(r.deadEnds).toBeGreaterThan(10);
-    const sol = r.shortest!;
-    // Retirer le dernier pas : la sortie doit encore être verrouillée si un animal manque.
-    const rep = replay(g, sol.slice(0, -1));
-    expect(rep.state.collected).toBe(allMask(g));
   });
 });

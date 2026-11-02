@@ -4,9 +4,14 @@ import '@fontsource/fredoka/600.css';
 import '@fontsource/fredoka/700.css';
 import Phaser from 'phaser';
 import { BootScene } from './scenes/BootScene';
+import { ChallengesScene } from './scenes/ChallengesScene';
+import { ChapterEndScene } from './scenes/ChapterEndScene';
+import { ChapterScene } from './scenes/ChapterScene';
+import { CollectionScene } from './scenes/CollectionScene';
+import { CommunityScene } from './scenes/CommunityScene';
 import { GameScene } from './scenes/GameScene';
-import { LevelsScene } from './scenes/LevelsScene';
-import { MenuScene } from './scenes/MenuScene';
+import { HomeScene } from './scenes/HomeScene';
+import { JourneyScene } from './scenes/JourneyScene';
 import { SettingsScene } from './scenes/SettingsScene';
 import { H, paintPageBackground, setViewHeight, W } from './ui/ui';
 import { installDebugApi } from './debug';
@@ -46,7 +51,7 @@ async function start() {
       // observés avec 16 unités sur certains pilotes.
       maxTextures: 8,
     },
-    scene: [BootScene, MenuScene, LevelsScene, GameScene, SettingsScene],
+    scene: [BootScene, HomeScene, JourneyScene, ChapterScene, GameScene, ChapterEndScene, ChallengesScene, CollectionScene, CommunityScene, SettingsScene],
   });
   installDebugApi(game);
   document.getElementById('loading')?.remove();

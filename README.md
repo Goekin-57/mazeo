@@ -1,7 +1,13 @@
-# MAZEO — Les labyrinthes vivants
+# MAZEO — Le Grand Sentier
 
-Jeu de puzzle mobile : chaque case quittée par Bourgeon se referme derrière lui (une haie pousse).
+Jeu de labyrinthes mobile : chaque case quittée par Bourgeon se referme derrière lui (une haie pousse).
 Il faut donc réfléchir à son trajet avant d'avancer.
+
+**Jouer en ligne : https://goekin-57.github.io/mazeo/**
+
+V4 : chapitre 1 « Le Jardin des Origines » (6 niveaux), mode Défis (jour, semaine, tentative classée),
+Collection équipable, accueil qui évolue avec la progression, écran Communauté prêt pour un futur serveur.
+Détails de conception, audit et règles de score : [docs/V4.md](docs/V4.md).
 
 Phaser 4.2.1 · TypeScript · Vite · WebGL · sauvegarde locale · sons synthétisés (Web Audio).
 
@@ -39,35 +45,39 @@ npm run preview        # sert dist/ sur le réseau local
 - **Recommencer**, **Pause**, son activé/désactivé (en haut à droite).
 - Ordinateur : souris, ou flèches du clavier, `Z` annuler, `R` recommencer, `Échap` pause.
 
-Règles : les chemins se ferment après passage ; les ponts (déployés par l'interrupteur) et l'arche
+Règles : les chemins se ferment après passage ; les ponts (déployés par le levier) et la porte
 florale (ouverte par la graine magique) restent ouverts ; la sortie n'accepte Bourgeon qu'avec
 tous les objets / animaux.
 
-Étoiles : ★ niveau terminé · ★ sans utiliser Annuler · ★ sans recommencer.
+Étoiles (facultatives) : ★ niveau terminé · ★★ parcours ≤ optimal + 25 % · ★★★ parcours optimal.
+Annuler et Recommencer ne pénalisent jamais.
 
 ## Architecture
 
 ```
 src/core/      moteur pur (sans Phaser) : grille, règles, solveur/validateur
-src/levels/    les 6 niveaux (données uniquement)
+src/content/   chapitres et niveaux (données), défis (bibliothèque figée + calendrier), récompenses
+src/social/    interface du futur backend (hors ligne pour l'instant), partage par lien
+src/save.ts    sauvegarde versionnée (v2) avec migration
+src/score.ts   format des résultats, validation par rejeu, étoiles
 src/art/       palette + toutes les textures dessinées en Canvas 2D (aucun asset externe)
 src/audio/     effets sonores et ambiance synthétisés
-src/scenes/    Boot, Menu, Levels (carnet), Game, Settings, Player (Bourgeon)
+src/scenes/    Accueil, Carnet de voyage, Chapitre, Jeu, Fin de chapitre, Défis, Collection, Communauté, Paramètres
 src/ui/        boutons, messages, interrupteurs, transitions
 tests/unit/    tests du moteur et validation des niveaux (Vitest)
 tests/e2e/     parcours complets dans le navigateur (Playwright)
 tools/         validateur de niveaux, scripts de capture
 ```
 
-Légende des cartes (`src/levels/levelN.ts`) : `.` sol · `S` départ · `E` sortie · `#` haie ·
-`t` arbre · `f` massif · `r` rocher · `b` buisson · `~` eau · `1-9` objet/animal · `T` interrupteur ·
-`B` pont · `D` arche florale.
+Légende des cartes (`src/content/chapter01/levelNN.ts`) : `#` obstacle · `.` chemin · `S` départ ·
+`E` sortie · `D` caneton · `L` levier · `B` pont · `K` graine magique · `P` porte florale · `~` eau ·
+`t f r b` variantes décoratives d'obstacle. Une bordure de `#` est retirée automatiquement.
 
 ## Tests
 
 ```bash
-npm test               # moteur + validation des 6 niveaux (espace d'états complet)
-npm run validate       # rapport du validateur (solutions, impasses, nombre d'états)
+npm test               # moteur, 6 niveaux, 16 défis, calendrier, scores, migration
+npm run validate       # rapport du validateur (aventure + 16 défis)
 npm run e2e            # Playwright : 4 tailles d'écran, gestes tactiles et souris réels
 ```
 
