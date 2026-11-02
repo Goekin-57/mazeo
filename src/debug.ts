@@ -43,28 +43,67 @@ export function installDebugApi(game: Phaser.Game) {
       return xy(gs().grid, cell);
     },
     objectPage(name: string) {
-      for (const key of active()) {
-        const sc = game.scene.getScene(key);
-        const o = sc.children.getByName(name) as Phaser.GameObjects.Image | null;
-        const found = o ?? findDeep(sc.children.list, name);
-        if (found) {
-          if (!found.visible) continue;
-          const m = found.getWorldTransformMatrix();
-          const cam = sc.cameras.main;
-          return worldToPage(game, m.tx - cam.scrollX, m.ty - cam.scrollY);
+      const hit = locate(game, name);
+      if (!hit) return null;
+      const { sc, obj } = hit;
+      const cam = sc.cameras.main;
+      const fixed = isFixed(obj);
+      let m = obj.getWorldTransformMatrix();
+      const bounds = (sc as unknown as { __scroll?: { min: number; max: number } }).__scroll;
+      if (!fixed && bounds) {
+        // écran défilant : amène l'élément dans la zone visible (comme le ferait un défilement du doigt)
+        const viewTop = cam.scrollY + 120, viewBottom = cam.scrollY + game.scale.height * 0.72;
+        if (m.ty < viewTop || m.ty > viewBottom) {
+          cam.scrollY = Math.min(bounds.max, Math.max(bounds.min, m.ty - game.scale.height * 0.4));
+          m = obj.getWorldTransformMatrix();
         }
       }
-      return null;
+      return worldToPage(game, m.tx - (fixed ? 0 : cam.scrollX), m.ty - (fixed ? 0 : cam.scrollY));
+    },
+    info(name: string) {
+      const hit = locate(game, name, true);
+      if (!hit) return null;
+      const o = hit.obj as Phaser.GameObjects.GameObject & { parentContainer?: Phaser.GameObjects.Container & { enabled?: boolean } };
+      const textObj = o.parentContainer?.list?.find((x) => x.type === 'Text') as Phaser.GameObjects.Text | undefined;
+      return { visible: deepVisible(o), enabled: o.parentContainer?.enabled ?? true, text: (o as Phaser.GameObjects.Text).text ?? textObj?.text ?? null, scene: hit.sc.scene.key };
     },
   };
 }
 
-function findDeep(list: Phaser.GameObjects.GameObject[], name: string): Phaser.GameObjects.Image | null {
+function deepVisible(o: Phaser.GameObjects.GameObject): boolean {
+  let cur: (Phaser.GameObjects.GameObject & { visible?: boolean; parentContainer?: Phaser.GameObjects.Container }) | undefined = o;
+  while (cur) {
+    if (cur.visible === false) return false;
+    cur = cur.parentContainer;
+  }
+  return true;
+}
+
+function isFixed(o: Phaser.GameObjects.GameObject): boolean {
+  let cur: (Phaser.GameObjects.GameObject & { scrollFactorY?: number; parentContainer?: Phaser.GameObjects.Container }) | undefined = o;
+  while (cur) {
+    if (cur.scrollFactorY === 0) return true;
+    cur = cur.parentContainer;
+  }
+  return false;
+}
+
+/** Cherche un objet nommé dans les scènes actives (la scène au premier plan d'abord). */
+function locate(game: Phaser.Game, name: string, includeHidden = false) {
+  const scenes = game.scene.getScenes(true).slice().reverse();
+  for (const sc of scenes) {
+    const obj = findDeep(sc.children.list, name, includeHidden);
+    if (obj) return { sc, obj };
+  }
+  return null;
+}
+
+function findDeep(list: Phaser.GameObjects.GameObject[], name: string, includeHidden = false): Phaser.GameObjects.Image | null {
   for (const o of list) {
-    if (o.name === name) return o as Phaser.GameObjects.Image;
+    if (o.name === name && (includeHidden || deepVisible(o))) return o as Phaser.GameObjects.Image;
     const kids = (o as Phaser.GameObjects.Container).list;
     if (Array.isArray(kids)) {
-      const f = findDeep(kids, name);
+      const f = findDeep(kids, name, includeHidden);
       if (f) return f;
     }
   }

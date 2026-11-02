@@ -14,9 +14,10 @@ export default defineConfig({
   use: { baseURL: 'http://localhost:5173', launchOptions, trace: 'off' },
   webServer: { command: 'npx vite --port 5173 --strictPort', url: 'http://localhost:5173', reuseExistingServer: true },
   projects: [
+    { name: 'phone-360x800', use: { viewport: { width: 360, height: 800 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
     { name: 'iphone-390x844', use: { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
     { name: 'android-412x915', use: { viewport: { width: 412, height: 915 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
-    { name: 'small-360x640', use: { viewport: { width: 360, height: 640 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
+    { name: 'tablet-768x1024', use: { viewport: { width: 768, height: 1024 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
     { name: 'desktop-1280x800', use: { viewport: { width: 1280, height: 800 }, hasTouch: false } },
   ],
 });

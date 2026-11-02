@@ -96,7 +96,7 @@ export function button(
 export function toast(scene: Phaser.Scene, s: string, y: number, ms = 2600, depth = 5000) {
   const prev = scene.children.getByName('toast');
   if (prev) prev.destroy();
-  const t = txt(scene, 0, 0, s, 38, { color: C.ink, weight: 500, wrap: 820 });
+  const t = txt(scene, 0, 0, s, 42, { color: C.ink, weight: 600, wrap: 860 });
   const g = scene.add.graphics();
   const w = Math.min(900, t.width + 70);
   const h = t.height + 40;
@@ -126,12 +126,12 @@ export function goTo(scene: Phaser.Scene, key: string, data?: object) {
     return;
   }
   scene.input.enabled = false;
-  cam.fadeOut(260, 246, 238, 217);
+  cam.fadeOut(180, 246, 238, 217);
   cam.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => scene.scene.start(key, data));
 }
 
 export function fadeIn(scene: Phaser.Scene) {
-  if (!reduced()) scene.cameras.main.fadeIn(320, 246, 238, 217);
+  if (!reduced()) scene.cameras.main.fadeIn(220, 246, 238, 217);
 }
 
 /** Fond commun : dessiné une fois dans la page (CSS) pour éviter un grand calque WebGL à chaque image. */
@@ -212,7 +212,7 @@ export function toggle(scene: Phaser.Scene, x: number, y: number, initial: boole
     mark.setX(knob.x).setVisible(v);
   };
   draw(initial);
-  const hit = scene.add.rectangle(0, 0, 140, 90, 0, 0).setInteractive({ useHandCursor: true });
+  const hit = scene.add.rectangle(0, 0, 200, 144, 0, 0).setInteractive({ useHandCursor: true }); // zone tactile ≥ 48 px CSS
   if (name) hit.name = name;
   hit.on('pointerup', () => {
     Sfx.click();

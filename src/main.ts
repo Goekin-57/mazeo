@@ -12,6 +12,7 @@ import { CommunityScene } from './scenes/CommunityScene';
 import { GameScene } from './scenes/GameScene';
 import { HomeScene } from './scenes/HomeScene';
 import { JourneyScene } from './scenes/JourneyScene';
+import { PauseScene } from './scenes/PauseScene';
 import { SettingsScene } from './scenes/SettingsScene';
 import { H, paintPageBackground, setViewHeight, W } from './ui/ui';
 import { installDebugApi } from './debug';
@@ -51,7 +52,7 @@ async function start() {
       // observés avec 16 unités sur certains pilotes.
       maxTextures: 8,
     },
-    scene: [BootScene, HomeScene, JourneyScene, ChapterScene, GameScene, ChapterEndScene, ChallengesScene, CollectionScene, CommunityScene, SettingsScene],
+    scene: [BootScene, HomeScene, JourneyScene, ChapterScene, GameScene, ChapterEndScene, ChallengesScene, CollectionScene, CommunityScene, SettingsScene, PauseScene],
   });
   installDebugApi(game);
   document.getElementById('loading')?.remove();

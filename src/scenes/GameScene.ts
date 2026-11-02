@@ -1,8 +1,7 @@
 import Phaser from 'phaser';
 import { boardLayout, drawBoard, type BoardLayout } from '../art/board';
-import { C, hex } from '../art/palette';
 import { BD, BT, HEDGE_BASE, HEDGE_H } from '../art/textures';
-import { Sfx, unlockAudio, syncAmbience } from '../audio/sfx';
+import { Sfx, unlockAudio } from '../audio/sfx';
 import { autoDecor, parseLevel, xy } from '../core/grid';
 import { allMask, blockReason, countCollected, initialState, step, validMoves } from '../core/rules';
 import { solve } from '../core/solver';
@@ -14,7 +13,9 @@ import { optimalMoves, recordAdventureWin, recordChallengeWin, type AdventureOut
 import { makeResult } from '../score';
 import { challengeLink, resultText } from '../social/share';
 import { Save } from '../save';
-import { button, fadeIn, goTo, H, paintPageBackground, reduced, toast, toggle, txt, W, type Button } from '../ui/ui';
+import { fadeIn, goTo, H, paintPageBackground, reduced, toast, W } from '../ui/ui';
+import { cardBg, chip, label, uiButton, type UIButton } from '../ui/components';
+import { color, font, hexOf, space, touch } from '../ui/theme';
 import { Player } from './Player';
 
 /** Ce que la scène doit jouer. */
@@ -24,8 +25,6 @@ export type PlayRequest =
 
 type Mode = 'idle' | 'drag' | 'moving' | 'won' | 'paused';
 
-const TOP_UI = 300;
-const BOTTOM_UI = 300;
 const STEP_MS = 210;
 
 const REASON_TEXT: Partial<Record<BlockReason, string>> = {
@@ -81,7 +80,6 @@ export class GameScene extends Phaser.Scene {
   private ropes: Phaser.GameObjects.Image[] = [];
   private vines?: Phaser.GameObjects.Image;
   private exitImg!: Phaser.GameObjects.Image;
-  private exitBadge?: Phaser.GameObjects.Container;
   private bloom: Phaser.GameObjects.Image[] = [];
   private preview!: Phaser.GameObjects.Graphics;
   private previewDots: Phaser.GameObjects.Image[] = [];
@@ -93,12 +91,19 @@ export class GameScene extends Phaser.Scene {
   private down: { x: number; y: number; cell: number; t: number } | null = null;
   private counterText?: Phaser.GameObjects.Text;
   private counterIcons: Phaser.GameObjects.Image[] = [];
-  private btnUndo!: Button;
-  private btnRestart!: Button;
-  private soundBtnIcon!: Phaser.GameObjects.Image;
+  private btnUndo?: UIButton;
+  private btnRestart!: UIButton;
+  private bottomBar!: Phaser.GameObjects.Container;
+  private topH = 260;
+  private bottomH = 240;
+  private exitPin?: Phaser.GameObjects.Container;
+  private exitHalo?: Phaser.GameObjects.Image;
+  private exitLockedShown = true;
+  private itemRings: Phaser.GameObjects.Image[] = [];
+  private lastRejectAt = 0;
+  private planned: Phaser.GameObjects.GameObject[] = [];
   private hand?: Phaser.GameObjects.Image;
   private grewOnce = false;
-  private overlay?: Phaser.GameObjects.Container;
   private solution: number[] = [];
 
   constructor() {
@@ -123,8 +128,13 @@ export class GameScene extends Phaser.Scene {
     this.movesText = undefined;
     // références d'objets de l'instance précédente (détruits au redémarrage de la scène)
     this.counterText = undefined;
-    this.exitBadge = undefined;
     this.hand = undefined;
+    this.btnUndo = undefined;
+    this.exitPin = undefined;
+    this.exitHalo = undefined;
+    this.exitLockedShown = true;
+    this.itemRings = [];
+    this.planned = [];
     this.mode = 'idle';
     this.hedges = new Map();
     this.items = new Map();
@@ -141,7 +151,6 @@ export class GameScene extends Phaser.Scene {
     this.queue = [];
     this.down = null;
     this.grewOnce = false;
-    this.overlay = undefined;
     this.vines = undefined;
     this.switchImg = undefined;
     this.counterIcons = [];
@@ -152,8 +161,11 @@ export class GameScene extends Phaser.Scene {
     this.input.enabled = true;
     fadeIn(this);
     this.buildBackground();
+    this.computeChrome();
     this.buildBoard();
     this.buildHud();
+    this.buildExitMarker();
+    this.playIntro();
     this.refreshHud();
     this.refreshChevrons();
     this.setupInput();
@@ -199,14 +211,14 @@ export class GameScene extends Phaser.Scene {
   private buildBoard() {
     const g = this.grid;
     const overflowTop = 0.75; // arbres / maison dépassant au-dessus de la 1re rangée
-    const availW = W - 64;
-    const availH = H - TOP_UI - BOTTOM_UI;
-    const tw = Math.floor(Math.min(availW / (g.width + 0.76), availH / (g.height * 0.825 + 0.76 + 0.42 + overflowTop), 230));
+    const availW = W - space.margin * 2;
+    const availH = H - this.topH - this.bottomH;
+    const tw = Math.floor(Math.min(availW / (g.width + 0.7), availH / (g.height * 0.825 + 0.7 + 0.42 + overflowTop), 270));
     this.L = boardLayout(g, tw);
     this.s = tw / BT;
     const boardH = this.L.height + overflowTop * tw;
     const bx = Math.round((W - this.L.width) / 2);
-    const by = Math.round(TOP_UI + (availH - boardH) / 2 + overflowTop * tw);
+    const by = Math.round(this.topH + (availH - boardH) / 2 + overflowTop * tw);
     this.ox = bx + this.L.pad;
     this.oy = by + this.L.pad;
 
@@ -250,6 +262,9 @@ export class GameScene extends Phaser.Scene {
         const img = this.add.image(c.x, c.y + 10 * s, def.kind).setOrigin(0.5, 0.92).setScale(s * (def.kind === 'seed' ? 1.05 : 0.95)).setDepth(c.y + 10 * s);
         this.items.set(def.id, img);
         this.idleItem(def.id, img);
+        const ring = this.add.image(c.x, c.y + 8 * s, 'ring').setScale(s * 0.95, s * 0.5).setTint(0xf7d35c).setAlpha(0.85).setDepth(2).setName(`ring-${def.id}`);
+        this.itemRings.push(ring);
+        if (!reduced()) this.tweens.add({ targets: ring, alpha: 0.4, duration: 1100, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
         if (def.kind === 'seed') {
           const glow = this.add.image(c.x, c.y - 10 * s, 'glow').setScale(s * 1.2).setDepth(3).setAlpha(0.6);
           glow.setName(`seed-glow-${def.id}`);
@@ -293,7 +308,6 @@ export class GameScene extends Phaser.Scene {
     this.previewTarget = this.add.image(0, 0, 'target').setScale(s).setDepth(9001).setVisible(false);
 
     this.addButterflies();
-    this.updateExitBadge();
   }
 
   /** Balancement doux du décor (mise à l'échelle, sans rotation). */
@@ -365,69 +379,85 @@ export class GameScene extends Phaser.Scene {
   // Interface (HUD)
   // =====================================================================
 
+  /** Hauteurs réservées au bandeau (haut) et aux commandes (bas), selon le contenu. */
+  private computeChrome() {
+    const chips = this.req.kind === 'challenge' || this.grid.collectibles.length > 0;
+    this.topH = space.margin + 168 + (chips ? 92 : 0) + 24;
+    this.bottomH = touch.secondaryH + space.margin * 2 + 30;
+  }
+
   private buildHud() {
     const d = 20000;
-    // bandeau supérieur discret
-    const top = this.add.graphics().setDepth(d - 1);
-    top.fillStyle(0xfffbf0, 0.82);
-    top.fillRoundedRect(90, 36, W - 180, 190, 48);
-    top.lineStyle(3, hex(C.creamDark), 1);
-    top.strokeRoundedRect(90, 36, W - 180, 190, 48);
-    const title = this.req.kind === 'challenge' ? `${this.req.label} · ${this.def.difficulty}` : `Niveau ${this.def.id} · ${this.def.name}`;
-    txt(this, W / 2, 88, title, 46, { weight: 700 }).setDepth(d);
-    if (this.req.kind === 'challenge') {
-      // mode clairement indiqué + compteur de cases
-      const chipBg = this.add.graphics().setDepth(d);
-      const ranked = this.req.ranked;
-      chipBg.fillStyle(ranked ? hex(C.orange) : hex(C.turquoise), 0.95);
-      chipBg.fillRoundedRect(110, 250, 470, 64, 32);
-      txt(this, 345, 282, ranked ? 'Tentative classée · sans annulation' : 'Entraînement · non classé', 28, { color: '#ffffff', weight: 700 }).setDepth(d + 1);
-      chipBg.fillStyle(0xfffbf0, 0.92);
-      chipBg.fillRoundedRect(W - 390, 250, 280, 64, 32);
-      this.add.image(W - 340, 282, 'icon-steps').setScale(0.55).setDepth(d + 1);
-      this.movesText = txt(this, W - 230, 282, 'Cases : 0', 32, { weight: 700 }).setDepth(d + 1);
-    }
-    txt(this, W / 2, 146, this.def.objective, 33, { color: C.inkSoft, weight: 500, wrap: 760 }).setDepth(d);
+    // --- bandeau compact : retour · nom court + objectif · pause ---
+    const barTop = space.margin;
+    const barH = 168;
+    const bar = this.add.graphics().setDepth(d - 1);
+    bar.fillStyle(hexOf(color.surface), 0.9);
+    bar.fillRoundedRect(space.margin, barTop, W - space.margin * 2, barH, 48);
+    bar.lineStyle(3, hexOf(color.border), 1);
+    bar.strokeRoundedRect(space.margin, barTop, W - space.margin * 2, barH, 48);
+    const cy = barTop + barH / 2;
+    const iconX = space.margin + 24 + touch.iconVisual / 2;
+    uiButton(this, iconX, cy, 'icon', { icon: 'icon-back', name: 'btn-quit' }, () => this.quit()).setDepth(d);
+    uiButton(this, W - iconX, cy, 'icon', { icon: 'icon-pause', name: 'btn-pause' }, () => this.openPause()).setDepth(d);
+    const title = this.req.kind === 'challenge' ? `${this.req.label} · ${this.def.difficulty}` : `${this.def.id} · ${this.def.name}`;
+    const textW = W - 2 * (iconX + touch.iconVisual / 2 + 24);
+    label(this, W / 2, cy - 30, title, font.heading, { weight: 700, wrap: textW }).setDepth(d);
+    label(this, W / 2, cy + 34, this.def.objective, font.caption, { color: color.inkSoft, weight: 500, wrap: textW }).setDepth(d);
 
+    // --- puces : mode (défis), objets requis, cases parcourues ---
+    const chipsY = barTop + barH + 54;
+    const row: Phaser.GameObjects.Container[] = [];
+    if (this.req.kind === 'challenge') row.push(chip(this, 0, chipsY, this.req.ranked ? 'Classé · sans annulation' : 'Entraînement', this.req.ranked ? 'primary' : 'accent'));
     if (this.grid.collectibles.length) {
-      const chip = this.add.image(W / 2, 214, 'chip').setDepth(d).setScale(1.05, 1);
-      void chip;
       const n = this.grid.collectibles.length;
-      const kinds = this.grid.collectibles.map((c) => c.kind);
-      const startX = W / 2 - 60 - (n - 1) * 28;
-      kinds.forEach((k, j) => {
-        const ic = this.add.image(startX + j * 56, 210, k).setScale(k === 'seed' ? 0.62 : 0.6).setDepth(d + 1);
+      const c = this.add.container(0, chipsY);
+      const w = 120 + n * 58;
+      const g = this.add.graphics();
+      g.fillStyle(hexOf(color.surface), 0.95);
+      g.fillRoundedRect(-w / 2, -34, w, 68, 34);
+      g.lineStyle(3, hexOf(color.border), 1);
+      g.strokeRoundedRect(-w / 2, -34, w, 68, 34);
+      c.add(g);
+      this.grid.collectibles.forEach((k, j) => {
+        const ic = this.add.image(-w / 2 + 46 + j * 58, -2, k.kind).setScale(k.kind === 'seed' ? 0.56 : 0.52);
         this.counterIcons.push(ic);
+        c.add(ic);
       });
-      this.counterText = txt(this, W / 2 + 58, 210, `0/${n}`, 40, { weight: 700 }).setDepth(d + 1);
+      this.counterText = label(this, w / 2 - 50, 0, `0/${n}`, font.label, { weight: 700 });
+      c.add(this.counterText);
+      c.setSize(w, 68);
+      row.push(c);
     }
+    if (this.req.kind === 'challenge') {
+      const c = this.add.container(0, chipsY);
+      const w = 250;
+      const g = this.add.graphics();
+      g.fillStyle(hexOf(color.surface), 0.95);
+      g.fillRoundedRect(-w / 2, -34, w, 68, 34);
+      g.lineStyle(3, hexOf(color.border), 1);
+      g.strokeRoundedRect(-w / 2, -34, w, 68, 34);
+      c.add([g, this.add.image(-w / 2 + 44, 0, 'icon-steps').setScale(0.5)]);
+      this.movesText = label(this, 24, 0, 'Cases : 0', font.label, { weight: 700 });
+      c.add(this.movesText);
+      c.setSize(w, 68);
+      row.push(c);
+    }
+    const totalW = row.reduce((a, c) => a + c.width, 0) + (row.length - 1) * space.gap;
+    let x = W / 2 - totalW / 2;
+    row.forEach((c) => { c.setX(x + c.width / 2).setDepth(d); x += c.width + space.gap; });
 
-    // bouton son (haut droite)
-    const snd = button(this, W - 74, 92, 'btn-small', { icon: Save.settings().sound ? 'icon-sound-on' : 'icon-sound-off', iconScale: 0.8 }, () => {
-      Save.setSetting('sound', !Save.settings().sound);
-      syncAmbience();
-      this.soundBtnIcon.setTexture(Save.settings().sound ? 'icon-sound-on' : 'icon-sound-off');
-    }, 'btn-sound');
-    snd.setDepth(d).setScale(0.82);
-    this.soundBtnIcon = snd.list[1] as Phaser.GameObjects.Image;
-
-    // boutons du bas : Annuler · Recommencer · Pause
-    const by = H - 170;
-    const mk = (x: number, icon: string, label: string, fn: () => void, name: string) => {
-      const b = button(this, x, by, 'btn-round', { icon, iconScale: 1.05 }, fn, name).setDepth(d);
-      txt(this, x, by + 100, label, 30, { color: C.ink, weight: 600 }).setDepth(d);
-      return b;
-    };
-    // Annuler (un pas d'action en arrière) est masqué quand il n'apporte rien ou en tentative classée.
+    // --- commandes du labyrinthe en bas : Annuler · Recommencer (secondaires) ---
+    this.bottomBar = this.add.container(0, 0).setDepth(d);
+    const by = H - space.margin - touch.secondaryH / 2 - 24;
     const restartLabel = this.ranked ? 'Nouvelle tentative' : 'Recommencer';
     if (this.undoAllowed) {
-      this.btnUndo = mk(W / 2 - 280, 'icon-undo', 'Annuler', () => this.undo(), 'btn-undo');
-      this.btnRestart = mk(W / 2, 'icon-restart', restartLabel, () => this.restart(), 'btn-restart');
-      mk(W / 2 + 280, 'icon-pause', 'Pause', () => this.openPause(), 'btn-pause');
+      this.btnUndo = uiButton(this, W / 2 - 230, by, 'secondary', { label: 'Annuler', icon: 'icon-undo', width: 420, name: 'btn-undo' }, () => this.undo());
+      this.btnRestart = uiButton(this, W / 2 + 230, by, 'secondary', { label: restartLabel, icon: 'icon-restart', width: 420, name: 'btn-restart' }, () => this.restart());
+      this.bottomBar.add([this.btnUndo, this.btnRestart]);
     } else {
-      this.btnUndo = button(this, -500, -500, 'btn-round', {}, () => undefined).setVisible(false);
-      this.btnRestart = mk(W / 2 - 160, 'icon-restart', restartLabel, () => this.restart(), 'btn-restart');
-      mk(W / 2 + 160, 'icon-pause', 'Pause', () => this.openPause(), 'btn-pause');
+      this.btnRestart = uiButton(this, W / 2, by, 'secondary', { label: restartLabel, icon: 'icon-restart', width: 520, name: 'btn-restart' }, () => this.restart());
+      this.bottomBar.add(this.btnRestart);
     }
   }
 
@@ -440,33 +470,99 @@ export class GameScene extends Phaser.Scene {
         ic.setAlpha(got ? 1 : 0.35).setTint(got ? 0xffffff : 0x9aa59a);
       });
     }
-    this.btnUndo.setEnabled(this.history.length > 0 && this.mode !== 'won');
+    this.btnUndo?.setEnabled(this.history.length > 0 && this.mode !== 'won');
+    this.btnRestart.setEnabled(this.mode !== 'won' && (this.history.length > 0 || this.state.steps > 0));
     this.movesText?.setText(`Cases : ${this.moves}`);
-    this.btnRestart.setEnabled(this.mode !== 'won');
-    this.updateExitBadge();
+    this.updateExitMarker();
   }
 
-  private updateExitBadge() {
-    this.exitBadge?.destroy();
-    this.exitBadge = undefined;
-    const n = this.grid.collectibles.length;
-    if (!n || this.state.collected === allMask(this.grid) || this.state.won) return;
+  /** Conditions visuelles de la sortie : objets requis, et pont / porte ouverts s'il y en a. */
+  private exitConditionsMet() {
+    const g = this.grid;
+    if (this.state.collected !== allMask(g)) return false;
+    if (g.cells.includes(Cell.Bridge) && !this.state.bridgesOpen) return false;
+    if (g.cells.includes(Cell.Door) && !this.state.doorsOpen) return false;
+    return true;
+  }
+
+  /** Identité de la sortie : halo au sol + repère flottant (drapeau, ou cadenas tant qu'il manque une condition). */
+  private buildExitMarker() {
     const ex = this.center(this.grid.exit);
-    const y = this.cellBottom(this.grid.exit) - (this.exitImg.displayHeight + 10 * this.s);
-    const g = this.add.graphics();
-    g.fillStyle(0xfffbf0, 0.95);
-    g.fillRoundedRect(-62, -30, 124, 60, 30);
-    g.lineStyle(3, hex(C.orange));
-    g.strokeRoundedRect(-62, -30, 124, 60, 30);
-    g.fillTriangle(-10, 28, 10, 28, 0, 42);
-    const lock = this.add.image(-30, 0, 'icon-lock').setScale(0.5);
-    const t = txt(this, 18, 0, `${countCollected(this.state)}/${n}`, 32, { weight: 700 });
-    this.exitBadge = this.add.container(ex.x, Math.max(y, this.oy - 40), [g, lock, t]).setDepth(9500).setScale(Math.min(1, this.s * 1.1));
+    const s = this.s;
+    this.exitHalo = this.add.image(ex.x, ex.y + 10 * s, 'glow-teal').setScale(s * 2.1, s * 1.1).setDepth(1.5);
+    const topY = this.cellBottom(this.grid.exit) - this.exitImg.displayHeight - 46 * s;
+    const pin = this.add.container(ex.x, Math.max(topY, this.oy - 30)).setDepth(9500).setScale(Math.min(1.1, s * 1.15));
+    pin.setName('exit-pin');
+    this.exitPin = pin;
+    this.exitLockedShown = !this.exitConditionsMet();
+    this.drawPin();
+    if (!reduced()) this.tweens.add({ targets: pin, y: pin.y - 10, duration: 900, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    if (!reduced()) this.tweens.add({ targets: this.exitHalo, alpha: 0.55, duration: 1200, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
   }
 
-  // =====================================================================
-  // Entrées : glisser depuis le personnage, ou toucher une case voisine
-  // =====================================================================
+  private drawPin() {
+    const pin = this.exitPin!;
+    pin.removeAll(true);
+    const locked = this.exitLockedShown;
+    const g = this.add.graphics();
+    g.fillStyle(color.scrim, 0.22);
+    g.fillCircle(0, 6, 44);
+    g.fillStyle(locked ? hexOf('#efe7d4') : hexOf(color.success), 1);
+    g.fillCircle(0, 0, 44);
+    g.fillTriangle(-16, 34, 16, 34, 0, 62);
+    g.lineStyle(6, 0xffffff, 1);
+    g.strokeCircle(0, 0, 44);
+    pin.add(g);
+    const ic = this.add.image(0, -2, locked ? 'icon-lock' : 'icon-flag').setScale(locked ? 0.72 : 0.7);
+    if (!locked) ic.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
+    pin.add(ic);
+    pin.setName(locked ? 'exit-pin-locked' : 'exit-pin-open');
+    this.exitHalo?.setTint(locked ? 0xb9b2a0 : 0xffffff).setAlpha(locked ? 0.45 : 1);
+  }
+
+  private updateExitMarker() {
+    if (!this.exitPin || this.state.won) return;
+    const locked = !this.exitConditionsMet();
+    if (locked === this.exitLockedShown) return;
+    this.exitLockedShown = locked;
+    this.drawPin();
+    if (!locked) {
+      // validation : la sortie s'illumine, le cadenas disparaît
+      Sfx.pickup();
+      const ex = this.center(this.grid.exit);
+      this.sparkleBurst(this.exitPin.x, this.exitPin.y, 8);
+      if (!reduced()) {
+        this.tweens.add({ targets: this.exitPin, scale: this.exitPin.scale * 1.25, duration: 160, yoyo: true, ease: 'Quad.easeOut' });
+        const ring = this.add.image(ex.x, ex.y + 10 * this.s, 'ring').setDepth(3).setScale(this.s * 0.4, this.s * 0.22).setTint(0x8fe0d4);
+        this.tweens.add({ targets: ring, scaleX: this.s * 2.2, scaleY: this.s * 1.2, alpha: 0, duration: 700, onComplete: () => ring.destroy() });
+      }
+    }
+  }
+
+  /** Introduction courte au premier passage : Bourgeon apparaît, la sortie puis les objectifs sont mis en évidence. */
+  private playIntro() {
+    if (reduced() || !Save.settings().levelIntro || Save.introSeen(this.def.key)) return;
+    Save.markIntroSeen(this.def.key);
+    const ps = this.player.scale;
+    this.player.setScale(0);
+    this.tweens.add({ targets: this.player, scale: ps, duration: 320, ease: 'Back.easeOut' });
+    const ex = this.center(this.grid.exit);
+    const halo = this.add.image(ex.x, ex.y, 'ring').setDepth(9400).setScale(this.s * 3, this.s * 1.7).setAlpha(0).setTint(0xffffff);
+    this.tweens.add({ targets: halo, alpha: { from: 0.95, to: 0 }, scaleX: this.s * 1.2, scaleY: this.s * 0.7, duration: 650, delay: 300, onComplete: () => halo.destroy() });
+    if (this.exitPin) this.tweens.add({ targets: this.exitPin, scale: this.exitPin.scale * 1.3, duration: 220, yoyo: true, delay: 380 });
+    this.itemRings.forEach((r, k) => this.tweens.add({ targets: r, scaleX: r.scaleX * 1.6, scaleY: r.scaleY * 1.6, duration: 240, yoyo: true, delay: 700 + k * 160 }));
+  }
+
+  private get toastY() {
+    return H - this.bottomH - 70;
+  }
+
+  /** Quitter le niveau (aucune progression perdue hormis la tentative en cours). */
+  private quit() {
+    if (this.mode === 'moving') return;
+    if (this.req.kind === 'adventure') goTo(this, 'Chapter', { chapterId: findLevel(this.def.key)!.chapter.id });
+    else goTo(this, 'Challenges');
+  }
 
   private setupInput() {
     this.input.on('pointerdown', (p: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]) => {
@@ -488,7 +584,12 @@ export class GameScene extends Phaser.Scene {
 
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
       if (this.mode !== 'drag' || !p.isDown) return;
-      this.extendPath(this.cellAt(p.worldX, p.worldY));
+      // tolérance : on ne change de case que lorsque le doigt est bien entré dedans (évite les sauts en bordure)
+      const cell = this.cellAt(p.worldX, p.worldY);
+      if (cell < 0) return; // hors du plateau : le tracé reste tel qu'affiché
+      const c = this.center(cell);
+      if (Math.abs(p.worldX - c.x) > this.L.tw * 0.42 || Math.abs(p.worldY - c.y) > this.L.td * 0.42) return;
+      this.extendPath(cell);
     });
 
     const release = (p: Phaser.Input.Pointer) => {
@@ -528,7 +629,7 @@ export class GameScene extends Phaser.Scene {
       kb.on('keydown-Z', () => this.undo());
       kb.on('keydown-BACKSPACE', () => this.undo());
       kb.on('keydown-R', () => this.restart());
-      kb.on('keydown-ESC', () => (this.mode === 'paused' ? this.closePause() : this.openPause()));
+      kb.on('keydown-ESC', () => this.openPause());
     }
   }
 
@@ -547,14 +648,32 @@ export class GameScene extends Phaser.Scene {
     // si le doigt a sauté plusieurs cases en ligne droite, on les parcourt une à une
     const [ex, ey] = xy(this.grid, end);
     const [cx, cy] = xy(this.grid, cell);
-    if (ex !== cx && ey !== cy) return;
+    if (ex !== cx && ey !== cy) {
+      // geste rapide en diagonale : on tente les deux coudes possibles
+      if (Math.abs(cx - ex) + Math.abs(cy - ey) !== 2) return;
+      for (const mid of [ey * this.grid.width + cx, cy * this.grid.width + ex]) {
+        const s0 = this.pathStates[this.pathStates.length - 1];
+        const r1 = step(this.grid, s0, mid);
+        if ('blocked' in r1) continue;
+        const r2 = step(this.grid, r1.state, cell);
+        if ('blocked' in r2) continue;
+        this.path.push(mid, cell);
+        this.pathStates.push(r1.state, r2.state);
+        this.drawPreview();
+        return;
+      }
+      return;
+    }
     const n = Math.abs(cx - ex) + Math.abs(cy - ey);
     const sx = Math.sign(cx - ex), sy = Math.sign(cy - ey);
     for (let k = 1; k <= n; k++) {
       const target = (ey + sy * k) * this.grid.width + (ex + sx * k);
       const s = this.pathStates[this.pathStates.length - 1];
       const r = step(this.grid, s, target);
-      if ('blocked' in r) break;
+      if ('blocked' in r) {
+        this.flashBlocked(target, r.blocked);
+        break;
+      }
       this.path.push(target);
       this.pathStates.push(r.state);
       if (r.state.won) break;
@@ -565,27 +684,41 @@ export class GameScene extends Phaser.Scene {
   private drawPreview() {
     const g = this.preview;
     g.clear();
-    this.previewDots.forEach((d) => d.destroy());
-    this.previewDots = [];
-    const pts = [this.state.pos, ...this.path].map((i) => this.center(i));
+    this.planned.forEach((o) => o.destroy());
+    this.planned = [];
+    const cells = [this.state.pos, ...this.path];
+    const pts = cells.map((i) => this.center(i));
     if (pts.length >= 2) {
-      g.lineStyle(20 * this.s, 0xffffff, 0.9);
+      // cases du chemin prévu : surbrillance distincte du chemin consommé (haies)
+      for (let k = 1; k < cells.length; k++) {
+        const p = pts[k];
+        g.fillStyle(hexOf(color.primary), 0.26);
+        g.fillRoundedRect(p.x - this.L.tw * 0.42, p.y - this.L.td * 0.4, this.L.tw * 0.84, this.L.td * 0.8, 22 * this.s);
+        g.lineStyle(5 * this.s, 0xffffff, 0.9);
+        g.strokeRoundedRect(p.x - this.L.tw * 0.42, p.y - this.L.td * 0.4, this.L.tw * 0.84, this.L.td * 0.8, 22 * this.s);
+      }
+      g.lineStyle(16 * this.s, 0xffffff, 0.9);
       g.beginPath();
       g.moveTo(pts[0].x, pts[0].y);
       pts.slice(1).forEach((p) => g.lineTo(p.x, p.y));
       g.strokePath();
-      g.lineStyle(10 * this.s, hex(C.orange), 1);
+      g.lineStyle(8 * this.s, hexOf(color.primary), 1);
       g.beginPath();
       g.moveTo(pts[0].x, pts[0].y);
       pts.slice(1).forEach((p) => g.lineTo(p.x, p.y));
       g.strokePath();
-      pts.slice(1, -1).forEach((p) => this.previewDots.push(this.add.image(p.x, p.y, 'step-dot').setScale(this.s * 0.9).setDepth(9001)));
+      // indication directionnelle sur chaque case prévue
+      for (let k = 1; k < pts.length; k++) {
+        const a = pts[k - 1], b = pts[k];
+        const ang = Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI + 90;
+        const ch = this.add.image(b.x, b.y, 'chevron').setDepth(9002).setScale(this.s * (k === pts.length - 1 ? 1 : 0.8)).setAngle(ang);
+        this.planned.push(ch);
+      }
       const last = pts[pts.length - 1];
       this.previewTarget.setPosition(last.x, last.y).setVisible(true);
     } else {
-      // halo autour du personnage pour montrer que le tracé est actif
       const p = pts[0];
-      g.lineStyle(6 * this.s, hex(C.orange), 0.9);
+      g.lineStyle(6 * this.s, hexOf(color.primary), 0.9);
       g.strokeEllipse(p.x, p.y, this.L.tw * 0.8, this.L.td * 0.62);
       this.previewTarget.setVisible(false);
     }
@@ -593,9 +726,22 @@ export class GameScene extends Phaser.Scene {
 
   private clearPreview() {
     this.preview.clear();
+    this.planned.forEach((o) => o.destroy());
+    this.planned = [];
     this.previewDots.forEach((d) => d.destroy());
     this.previewDots = [];
     this.previewTarget.setVisible(false);
+  }
+
+  /** Retour visuel quand le tracé bute sur une case bloquée (sans spam). */
+  private flashBlocked(cell: number, reason: BlockReason) {
+    if (reason === 'not-adjacent' || reason === 'won' || reason === 'out') return;
+    if (this.time.now - this.lastRejectAt < 450) return;
+    this.lastRejectAt = this.time.now;
+    const c = this.center(cell);
+    const x = this.add.image(c.x, c.y - 10 * this.s, 'cross').setDepth(9003).setScale(this.s * 0.9);
+    this.tweens.add({ targets: x, alpha: 0, scale: this.s * 1.1, duration: 420, delay: 120, onComplete: () => x.destroy() });
+    if (reason === 'exit-locked' && this.exitPin && !reduced()) this.tweens.add({ targets: this.exitPin, angle: { from: -10, to: 10 }, duration: 70, yoyo: true, repeat: 2, onComplete: () => this.exitPin?.setAngle(0) });
   }
 
   private tapCell(cell: number) {
@@ -605,7 +751,7 @@ export class GameScene extends Phaser.Scene {
     }
     const reason = blockReason(this.grid, this.state, cell);
     if (reason === 'not-adjacent') {
-      toast(this, 'Touche une case voisine, ou glisse depuis Bourgeon', H - 330, 2000);
+      toast(this, 'Touche une case voisine, ou glisse depuis Bourgeon', this.toastY, 2000);
       return;
     }
     if (reason) {
@@ -622,12 +768,12 @@ export class GameScene extends Phaser.Scene {
     Sfx.bump();
     let msg = REASON_TEXT[reason];
     if (reason === 'exit-locked') msg = this.def.hints?.blockedExit ?? 'Il manque encore quelque chose…';
-    if (msg) toast(this, msg, H - 330, 2200);
+    if (msg) toast(this, msg, this.toastY, 2200);
     if (reason === 'closed') {
       const h = this.hedges.get(cell);
       if (h && !reduced()) this.tweens.add({ targets: h, angle: { from: -4, to: 4 }, duration: 60, yoyo: true, repeat: 2, onComplete: () => h.setAngle(0) });
     }
-    if (reason === 'exit-locked' && this.exitBadge && !reduced()) this.tweens.add({ targets: this.exitBadge, scale: this.exitBadge.scale * 1.25, duration: 120, yoyo: true });
+    if (reason === 'exit-locked') this.flashBlocked(cell, reason);
   }
 
   // =====================================================================
@@ -731,7 +877,7 @@ export class GameScene extends Phaser.Scene {
     this.player.startle(!this.grewOnce);
     if (!this.grewOnce) {
       this.grewOnce = true;
-      if (this.def.hints?.firstMove) this.time.delayedCall(350, () => toast(this, this.def.hints!.firstMove!, H - 330, 3200));
+      if (this.def.hints?.firstMove) this.time.delayedCall(350, () => toast(this, this.def.hints!.firstMove!, this.toastY, 3200));
     }
   }
 
@@ -785,6 +931,14 @@ export class GameScene extends Phaser.Scene {
     this.tweens.add({ targets: ring, scaleX: this.s * 1.6, scaleY: this.s * 0.8, alpha: 0, duration: 600, onComplete: () => ring.destroy() });
     const glow = this.add.image(sw.x, sw.y, 'glow-teal').setDepth(3).setScale(this.s);
     this.tweens.add({ targets: glow, alpha: 0, duration: 900, onComplete: () => glow.destroy() });
+    // traînée lumineuse du levier vers le pont : on voit ce qui change
+    if (!reduced() && this.planks.length) {
+      const target = this.planks[this.planks.length - 1];
+      for (let k = 0; k < 7; k++) {
+        const sp = this.add.image(sw.x, sw.y - 40 * this.s, 'sparkle').setDepth(9600).setScale(this.s * 0.7);
+        this.tweens.add({ targets: sp, x: target.x, y: target.y, alpha: { from: 1, to: 0.2 }, duration: 520, delay: 60 + k * 45, ease: 'Sine.easeInOut', onComplete: () => sp.destroy() });
+      }
+    }
     // déploiement du pont planche par planche
     const per = reduced() ? 0 : 110;
     this.ropes.forEach((r) => this.tweens.add({ targets: r, scale: 0, alpha: 0, duration: 200 }));
@@ -859,34 +1013,31 @@ export class GameScene extends Phaser.Scene {
   private showStuck() {
     this.hideStuck();
     const d = 26000;
-    const y = H - 420;
-    const c = this.add.container(W / 2, y).setDepth(d);
-    const g = this.add.graphics();
-    const w = 760, h = 200;
-    g.fillStyle(0x2c4a30, 0.18);
-    g.fillRoundedRect(-w / 2, -h / 2 + 8, w, h, 40);
-    g.fillStyle(0xfffbf0, 0.97);
-    g.fillRoundedRect(-w / 2, -h / 2, w, h, 40);
-    g.lineStyle(4, hex(C.orange));
-    g.strokeRoundedRect(-w / 2, -h / 2, w, h, 40);
-    c.add(g);
-    c.add(txt(this, 0, -56, this.def.hints?.stuck ?? 'Plus de chemin possible !', 38, { weight: 700 }));
+    const h = 330;
+    const top = H - space.margin - h - 10;
+    const c = this.add.container(0, 0).setDepth(d);
+    c.add(cardBg(this, space.margin, top, W - space.margin * 2, h, { border: color.primary, borderW: 5 }));
+    c.add(label(this, W / 2, top + 70, this.def.hints?.stuck ?? 'Plus de chemin possible !', font.heading, { weight: 700 }));
+    const by = top + h - space.margin - touch.primaryH / 2 - 6;
     if (this.undoAllowed) {
-      c.add(button(this, -175, 30, 'pill-sm-cream', { label: 'Annuler', icon: 'icon-undo', iconScale: 0.62, size: 36, iconX: -95 }, () => this.undo(), 'stuck-undo').setScale(0.9));
-      c.add(button(this, 175, 30, 'pill-sm-orange', { label: 'Recommencer', icon: 'icon-restart', iconScale: 0.62, size: 34, iconX: -118 }, () => this.restart(), 'stuck-restart').setScale(0.9));
+      c.add(uiButton(this, W / 2 - 250, by, 'secondary', { label: 'Annuler', icon: 'icon-undo', width: 380, name: 'stuck-undo' }, () => this.undo()));
+      c.add(uiButton(this, W / 2 + 200, by, 'primary', { label: 'Recommencer', width: 480, name: 'stuck-restart' }, () => this.restart()));
     } else {
-      c.add(button(this, 0, 30, 'pill-sm-orange', { label: this.ranked ? 'Nouvelle tentative' : 'Recommencer', icon: 'icon-restart', iconScale: 0.62, size: 34, iconX: -130 }, () => this.restart(), 'stuck-restart').setScale(0.95));
+      c.add(uiButton(this, W / 2, by, 'primary', { label: this.ranked ? 'Nouvelle tentative' : 'Recommencer', width: 620, name: 'stuck-restart' }, () => this.restart()));
     }
+    // les mêmes actions ne sont pas répétées en dessous
+    this.bottomBar.setVisible(false);
     this.stuckUi = c;
     if (!reduced()) {
-      c.setScale(0.9).setAlpha(0);
-      this.tweens.add({ targets: c, scale: 1, alpha: 1, duration: 260, ease: 'Back.easeOut' });
+      c.setY(60).setAlpha(0);
+      this.tweens.add({ targets: c, y: 0, alpha: 1, duration: 260, ease: 'Quad.easeOut' });
     }
   }
 
   private hideStuck() {
     this.stuckUi?.destroy();
     this.stuckUi = undefined;
+    this.bottomBar?.setVisible(this.mode !== 'won');
   }
 
   // =====================================================================
@@ -1001,7 +1152,7 @@ export class GameScene extends Phaser.Scene {
 
   private showStartHint() {
     const h = this.def.hints?.start;
-    if (h) this.time.delayedCall(450, () => toast(this, h, H - 330, 4200));
+    if (h) this.time.delayedCall(450, () => toast(this, h, this.toastY, 4200));
     if (this.def.key === 'chapter01-level01' && this.solution.length >= 3) {
       const pts = [this.state.pos, ...this.solution.slice(0, 3)].map((i) => this.center(i));
       this.hand = this.add.image(pts[0].x + 20, pts[0].y + 30, 'hand').setOrigin(0.3, 0.1).setDepth(9800).setScale(0.9);
@@ -1122,98 +1273,94 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  /** Panneau léger, placé du côté opposé à la sortie pour laisser voir la célébration. */
+  /** Feuille de résultat compacte, du côté opposé à la sortie pour laisser voir la célébration. */
   private panelShell(ph: number) {
+    this.bottomBar.setVisible(false);
+    this.exitPin?.setVisible(false);
     const exitLow = this.center(this.grid.exit).y > H * 0.5;
-    const py = exitLow ? 30 + ph / 2 : H - ph / 2 - 30;
-    const c = this.add.container(W / 2, py).setDepth(30000);
-    const g = this.add.graphics();
-    g.fillStyle(0x2c4a30, 0.2);
-    g.fillRoundedRect(-470, -ph / 2 + 10, 940, ph, 56);
-    g.fillStyle(0xfffbf0, 0.985);
-    g.fillRoundedRect(-470, -ph / 2, 940, ph, 56);
-    g.lineStyle(5, hex(C.orange), 1);
-    g.strokeRoundedRect(-470, -ph / 2, 940, ph, 56);
-    c.add(g);
+    const top = exitLow ? space.margin : H - ph - space.margin;
+    const c = this.add.container(0, 0).setDepth(30000);
+    c.add(cardBg(this, space.margin, top, W - space.margin * 2, ph, { border: color.primary, borderW: 5, alpha: 0.985 }));
     if (!reduced()) {
-      c.setY(exitLow ? -ph / 2 : H + ph / 2);
-      this.tweens.add({ targets: c, y: py, duration: 520, ease: 'Back.easeOut' });
+      c.setY(exitLow ? -ph : ph).setAlpha(0);
+      this.tweens.add({ targets: c, y: 0, alpha: 1, duration: 320, ease: 'Cubic.easeOut' });
     }
-    return c;
+    return { c, top };
   }
 
-  private rewardLine(c: Phaser.GameObjects.Container, ids: string[], y: number) {
+  private starsRow(c: Phaser.GameObjects.Container, cx: number, y: number, n: number) {
+    for (let k = 0; k < 3; k++) {
+      const sc = k === 1 ? 0.78 : 0.66;
+      const st = this.add.image(cx + (k - 1) * 112, y + (k === 1 ? -6 : 0), k < n ? 'star-full' : 'star-empty').setScale(sc).setName(`star-${k}`);
+      c.add(st);
+      if (k < n && !reduced()) {
+        st.setScale(0);
+        this.tweens.add({ targets: st, scale: sc, duration: 300, delay: 200 + k * 220, ease: 'Back.easeOut', onStart: () => Sfx.star(k) });
+      }
+    }
+  }
+
+  private rewardChip(c: Phaser.GameObjects.Container, ids: string[], y: number) {
     if (!ids.length) return;
     const names = ids.map((id) => rewardById(id)?.name ?? id).join(' · ');
     const first = rewardById(ids[0]);
-    if (first) c.add(this.add.image(-330, y, first.icon).setScale(first.slot === 'badge' ? 0.42 : 0.55));
-    c.add(txt(this, -280, y, `Nouveau : ${names}`, 32, { color: C.orangeDeep, weight: 700, align: 'left', wrap: 640 }).setOrigin(0, 0.5));
+    const t = label(this, 0, y, `Nouveau : ${names}`, font.label, { weight: 700, color: color.primaryDeep });
+    const iconW = first ? 80 : 0;
+    const w = t.width + iconW + 70;
+    const g = this.add.graphics();
+    g.fillStyle(hexOf('#fff1d6'), 1);
+    g.fillRoundedRect(W / 2 - w / 2, y - 40, w, 80, 40);
+    c.add(g);
+    if (first) c.add(this.add.image(W / 2 - w / 2 + 60, y, first.icon).setScale(first.slot === 'badge' ? 0.36 : 0.48));
+    t.setX(W / 2 + iconW / 2);
+    c.add(t);
+    if (!reduced()) this.tweens.add({ targets: g, alpha: { from: 0.4, to: 1 }, duration: 500, yoyo: true, repeat: 2, delay: 800 });
   }
 
   private showAdventurePanel(o: AdventureOutcome) {
     const hasReward = o.rewards.length > 0;
-    const ph = hasReward ? 700 : 630;
-    const c = this.panelShell(ph);
-    const top = -ph / 2;
-    c.add(txt(this, 0, top + 64, 'Bravo !', 64, { weight: 700 }));
-    c.add(txt(this, 0, top + 116, this.def.name, 32, { color: C.inkSoft, weight: 500 }));
-    for (let k = 0; k < 3; k++) {
-      const sc = k === 1 ? 1.1 : 0.9;
-      const st = this.add.image((k - 1) * 150, top + 205, k < o.stars ? 'star-full' : 'star-empty').setScale(sc);
-      c.add(st);
-      if (k < o.stars && !reduced()) {
-        st.setScale(0);
-        this.tweens.add({ targets: st, scale: sc, duration: 380, delay: 250 + k * 260, ease: 'Back.easeOut', onStart: () => Sfx.star(k) });
-      }
-    }
-    const crit: [string, boolean][] = [
-      ['Niveau terminé', true],
-      [`Parcours de ${Math.ceil(o.optimal * 1.25)} cases ou moins`, o.stars >= 2],
-      [`Parcours optimal : ${o.optimal} cases`, o.stars >= 3],
-    ];
-    crit.forEach(([t, ok], k) => {
-      const y = top + 296 + k * 48;
-      c.add(this.add.image(-250, y, ok ? 'icon-check' : 'icon-steps').setScale(ok ? 0.54 : 0.42).setAlpha(ok ? 1 : 0.5));
-      c.add(txt(this, -212, y, t, 32, { color: ok ? C.ink : C.inkSoft, weight: ok ? 600 : 400, align: 'left' }).setOrigin(0, 0.5));
-    });
-    c.add(txt(this, 0, top + 450, `Ton parcours : ${this.moves} cases${o.newBest && this.moves !== o.bestMoves ? '' : ''} · Record : ${o.bestMoves}${o.newBest ? ' (nouveau)' : ''}`, 30, { color: C.inkSoft, weight: 500 }));
-    if (hasReward) this.rewardLine(c, o.rewards, top + 520);
-    const by = ph / 2 - 82;
-    c.add(button(this, -225, by, 'pill-sm-cream', { label: 'Rejouer', icon: 'icon-restart', iconScale: 0.7, size: 42, iconX: -100 }, () => goTo(this, 'Game', { kind: 'adventure', key: this.def.key }), 'btn-replay'));
-    if (o.nextKey) c.add(button(this, 225, by, 'pill-sm-orange', { label: 'Niveau suivant', icon: 'icon-next', iconScale: 0.7, size: 36, iconX: -125 }, () => goTo(this, 'Game', { kind: 'adventure', key: o.nextKey! }), 'btn-next'));
-    else c.add(button(this, 225, by, 'pill-sm-orange', { label: 'Carnet', icon: 'icon-map', iconScale: 0.7, size: 42, iconX: -100 }, () => goTo(this, 'Journey'), 'btn-next'));
+    const ph = hasReward ? 600 : 500;
+    const { c, top } = this.panelShell(ph);
+    const pad = space.pad + 12;
+    c.add(label(this, space.margin + pad, top + 76, 'Bravo !', font.display, { weight: 700, align: 'left' }));
+    this.starsRow(c, W - space.margin - pad - 170, top + 76, o.stars);
+    const detail = o.stars === 3 ? `${this.moves} cases · parcours optimal` : `${this.moves} cases · optimal ${o.optimal}`;
+    c.add(label(this, space.margin + pad, top + 160, `${detail} · record ${o.bestMoves}${o.newBest ? ' (nouveau)' : ''}`, font.body, { color: color.inkSoft, weight: 500, align: 'left', wrap: W - 2 * (space.margin + pad) }));
+    if (hasReward) this.rewardChip(c, o.rewards, top + 250);
+    const by = top + ph - space.margin - touch.primaryH / 2 - 10;
+    c.add(uiButton(this, space.margin + pad + 150, by, 'secondary', { label: 'Rejouer', icon: 'icon-restart', width: 300, name: 'btn-replay' }, () => goTo(this, 'Game', { kind: 'adventure', key: this.def.key })));
+    const primaryW = W - 2 * (space.margin + pad) - 300 - space.gap;
+    const px0 = W - space.margin - pad - primaryW / 2;
+    if (o.nextKey) c.add(uiButton(this, px0, by, 'primary', { label: 'NIVEAU SUIVANT', width: primaryW, name: 'btn-next' }, () => goTo(this, 'Game', { kind: 'adventure', key: o.nextKey! })));
+    else c.add(uiButton(this, px0, by, 'primary', { label: 'VOIR LE CARNET', width: primaryW, name: 'btn-next' }, () => goTo(this, 'Journey')));
   }
 
   private showChallengePanel(r: { result: ReturnType<typeof makeResult>; rewards: string[]; prevBest: number | null; firstWin: boolean }) {
     const res = r.result;
     const hasReward = r.rewards.length > 0;
-    const ph = hasReward ? 700 : 630;
-    const c = this.panelShell(ph);
-    const top = -ph / 2;
-    const record = r.prevBest === null || res.moves < r.prevBest;
-    c.add(txt(this, 0, top + 64, record && !r.firstWin ? 'Nouveau record !' : 'Défi réussi !', 60, { weight: 700 }));
-    c.add(txt(this, 0, top + 116, `${this.def.name} · ${res.mode === 'ranked' ? 'tentative classée' : 'entraînement'}`, 30, { color: C.inkSoft, weight: 500 }));
-    c.add(this.add.image(-60, top + 210, 'icon-steps').setScale(1.1));
-    c.add(txt(this, 40, top + 210, `${res.moves}`, 96, { weight: 700, color: C.orangeDeep }));
-    c.add(txt(this, 40, top + 280, 'cases parcourues', 30, { color: C.inkSoft, weight: 500 }));
+    const ph = hasReward ? 640 : 540;
+    const { c, top } = this.panelShell(ph);
+    const pad = space.pad + 12;
+    const record = r.prevBest !== null && res.moves < r.prevBest;
+    c.add(label(this, space.margin + pad, top + 76, record ? 'Nouveau record !' : 'Défi réussi !', font.title + 6, { weight: 700, align: 'left' }));
+    c.add(uiButton(this, W - space.margin - pad - touch.iconVisual / 2, top + 76, 'icon', { icon: 'icon-share', name: 'btn-share' }, () => this.shareResult(res.moves)));
+    c.add(label(this, space.margin + pad, top + 186, `${res.moves}`, font.display + 30, { weight: 700, color: color.primaryDeep, align: 'left' }));
     const best = Math.min(res.moves, r.prevBest ?? Infinity);
-    const opt = optimalMoves(this.def);
-    // l'optimal du solveur n'est révélé qu'après une première réussite (c'est le cas ici)
-    c.add(txt(this, 0, top + 350, `Meilleur personnel : ${best} · Optimal connu : ${opt}`, 32, { weight: 600 }));
-    c.add(txt(this, 0, top + 400, res.validated ? 'Résultat validé par le moteur · enregistré sur cet appareil' : 'Résultat non classé (annulation utilisée)', 26, { color: C.inkSoft, weight: 400 }));
-    if (hasReward) this.rewardLine(c, r.rewards, top + 470);
-    const by = ph / 2 - 82;
-    c.add(button(this, -300, by, 'pill-sm-cream', { label: 'Rejouer', icon: 'icon-restart', iconScale: 0.62, size: 36, iconX: -95 }, () => goTo(this, 'Game', this.req), 'btn-replay').setScale(0.82));
-    c.add(button(this, 0, by, 'pill-sm-cream', { label: 'Partager', icon: 'icon-share', iconScale: 0.62, size: 36, iconX: -95 }, () => this.shareResult(res.moves), 'btn-share').setScale(0.82));
-    c.add(button(this, 300, by, 'pill-sm-orange', { label: 'Défis', icon: 'icon-flag', iconScale: 0.62, size: 38, iconX: -80 }, () => goTo(this, 'Challenges'), 'btn-next').setScale(0.82));
+    c.add(label(this, space.margin + pad + 150, top + 166, `cases · record ${best} · optimal ${optimalMoves(this.def)}`, font.body, { weight: 600, align: 'left' }));
+    c.add(label(this, space.margin + pad + 150, top + 214, res.mode === 'ranked' ? (res.validated ? 'Tentative classée · enregistrée sur cet appareil' : 'Non classée') : 'Entraînement · non classé', font.caption, { color: color.inkSoft, weight: 500, align: 'left' }));
+    if (hasReward) this.rewardChip(c, r.rewards, top + 300);
+    const by = top + ph - space.margin - touch.primaryH / 2 - 10;
+    c.add(uiButton(this, space.margin + pad + 150, by, 'secondary', { label: 'Rejouer', icon: 'icon-restart', width: 300, name: 'btn-replay' }, () => goTo(this, 'Game', this.req)));
+    const primaryW = W - 2 * (space.margin + pad) - 300 - space.gap;
+    c.add(uiButton(this, W - space.margin - pad - primaryW / 2, by, 'primary', { label: 'RETOUR AUX DÉFIS', width: primaryW, name: 'btn-next' }, () => goTo(this, 'Challenges')));
   }
 
   /** Partage manuel : copie un texte avec le lien du même puzzle (aucun envoi automatique). */
   private shareResult(moves: number) {
     const link = challengeLink(this.def.key, this.def.version);
     const text = resultText(this.def.name, moves, optimalMoves(this.def), link);
-    const done = () => toast(this, 'Texte copié : colle-le dans un message', H - 120, 2400, 31000);
-    const fail = () => toast(this, link, H - 120, 6000, 31000);
+    const done = () => toast(this, 'Texte copié : colle-le dans un message', H / 2, 2400, 31000);
+    const fail = () => toast(this, link, H / 2, 6000, 31000);
     try {
       navigator.clipboard.writeText(text).then(done, fail);
     } catch {
@@ -1226,53 +1373,18 @@ export class GameScene extends Phaser.Scene {
   // =====================================================================
 
   openPause() {
-    if (this.mode === 'moving' || this.mode === 'won' || this.mode === 'drag' || this.overlay) return;
-    this.mode = 'paused';
+    if (this.mode === 'moving' || this.mode === 'won' || this.mode === 'drag') return;
     this.hideChevrons();
-    const d = 40000;
-    const c = this.add.container(0, 0).setDepth(d);
-    const dim = this.add.rectangle(W / 2, H / 2, W, H, 0x2c4a30, 0.35).setInteractive();
-    c.add(dim);
-    const g = this.add.graphics();
-    g.fillStyle(0xfffbf0, 0.97);
-    g.fillRoundedRect(W / 2 - 400, 470, 800, 980, 56);
-    g.lineStyle(5, hex(C.sage), 1);
-    g.strokeRoundedRect(W / 2 - 400, 470, 800, 980, 56);
-    c.add(g);
-    c.add(txt(this, W / 2, 560, 'Pause', 64, { weight: 700 }));
-    const items: [string, string, string, () => void][] = [
-      ['pill-orange', 'icon-play', 'Reprendre', () => this.closePause()],
-      ['pill-cream', 'icon-restart', 'Recommencer', () => { this.closePause(); this.restart(); }],
-      this.req.kind === 'adventure'
-        ? ['pill-cream', 'icon-map', 'Carnet du chapitre', () => goTo(this, 'Chapter', { chapterId: findLevel(this.def.key)!.chapter.id })]
-        : ['pill-cream', 'icon-flag', 'Retour aux défis', () => goTo(this, 'Challenges')],
-      ['pill-cream', 'icon-home', 'Accueil', () => goTo(this, 'Home')],
-    ];
-    items.forEach(([tex, icon, label, fn], k) => c.add(button(this, W / 2, 700 + k * 150, tex, { icon, label, size: 44, iconScale: 0.85, iconX: -200 }, fn, `pause-${k}`)));
-    // réglages rapides
-    const toggles: [string, () => boolean, () => void][] = [
-      ['Son', () => Save.settings().sound, () => { Save.setSetting('sound', !Save.settings().sound); syncAmbience(); this.soundBtnIcon.setTexture(Save.settings().sound ? 'icon-sound-on' : 'icon-sound-off'); }],
-      ['Animations réduites', () => Save.settings().reducedMotion, () => Save.setSetting('reducedMotion', !Save.settings().reducedMotion)],
-    ];
-    toggles.forEach(([label, get, set], k) => {
-      const y = 1300 + k * 90;
-      const lab = txt(this, W / 2 - 300, y, label, 38, { align: 'left', weight: 500 }).setOrigin(0, 0.5);
-      const sw = toggle(this, W / 2 + 260, y, get(), () => { set(); return get(); });
-      c.add([lab, sw]);
-    });
-    this.overlay = c;
-    if (!reduced()) {
-      c.setAlpha(0);
-      this.tweens.add({ targets: c, alpha: 1, duration: 180 });
-    }
+    this.scene.launch('Pause', { from: 'Game' });
+    this.scene.pause(); // suspend animations, minuteries et interactions du niveau
   }
 
-  closePause() {
-    if (!this.overlay) return;
-    this.overlay.destroy();
-    this.overlay = undefined;
-    this.mode = 'idle';
-    this.refreshChevrons();
+  /** Appelé par la scène Pause. */
+  resumeFromPause(action: 'resume' | 'restart' | 'quit') {
+    this.scene.resume();
+    if (action === 'restart') this.restart();
+    else if (action === 'quit') this.quit();
+    else this.refreshChevrons();
   }
 
   update() {

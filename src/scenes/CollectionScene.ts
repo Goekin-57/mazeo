@@ -1,88 +1,103 @@
 import Phaser from 'phaser';
-import { C, hex } from '../art/palette';
 import { Sfx } from '../audio/sfx';
-import { REWARDS, type RewardDef } from '../content/rewards';
+import { REWARDS, type RewardDef, type RewardSlot } from '../content/rewards';
 import { Save } from '../save';
-import { backdrop, button, centerCamera, fadeIn, goTo, reduced, toast, txt, W } from '../ui/ui';
+import { cardBg, chip, label, pop } from '../ui/components';
+import { finishScreen, setupScreen } from '../ui/screen';
+import { color, font, space } from '../ui/theme';
+import { reduced, W } from '../ui/ui';
 import { Player } from './Player';
 
-/** Collection : objets obtenus, équipement visible sur Bourgeon et sur l'accueil. */
+const SECTIONS: [string, RewardSlot[]][] = [
+  ['Tenues', ['hat', 'scarf']],
+  ['Compagnons', ['companion']],
+  ['Décorations', ['decor']],
+  ['Badges', ['badge']],
+];
+
+/** Collection : Bourgeon équipé en évidence, cartes directement interactives (ÉQUIPÉ / ÉQUIPER / VERROUILLÉ). */
 export class CollectionScene extends Phaser.Scene {
+  private changed: string | null = null;
+  private fresh: string[] = [];
   constructor() {
     super('Collection');
   }
 
-  create() {
-    this.input.enabled = true;
-    centerCamera(this);
-    fadeIn(this);
-    backdrop(this, { clouds: false });
-    const fresh = Save.get().collection.fresh.slice();
-    button(this, 96, 96, 'btn-small', { icon: 'icon-back', iconScale: 0.9 }, () => goTo(this, 'Home'), 'btn-back').setScale(0.95);
-    txt(this, W / 2 + 30, 104, 'Collection', 66, { weight: 700 });
-    const owned = REWARDS.filter((r) => Save.owns(r.id)).length;
-    txt(this, W / 2, 182, `${owned}/${REWARDS.length} objets · uniquement décoratifs`, 32, { color: C.inkSoft, weight: 500 });
-
-    // aperçu de Bourgeon équipé
-    const g = this.add.graphics();
-    g.fillStyle(0xfffbf0, 0.9);
-    g.fillRoundedRect(140, 230, W - 280, 440, 60);
-    const eq = Save.get().collection.equipped;
-    const pip = new Player(this, W / 2, 630, 1.7, { hat: eq.hat === 'hat-gardener', golden: eq.scarf === 'scarf-golden' });
-    pip.setName('collection-pip');
-    if (eq.companion === 'companion-duckling') this.add.image(W / 2 + 190, 620, 'duckling').setOrigin(0.5, 0.9).setScale(1.5).setFlipX(true);
-    if (eq.decor.includes('deco-magic-flower')) this.add.image(W / 2 - 250, 640, 'magic-flower').setOrigin(0.5, 0.95).setScale(1.6);
-    if (eq.decor.includes('deco-lanterns')) this.add.image(W / 2 + 330, 640, 'lantern').setOrigin(0.5, 0.95).setScale(1.6);
-
-    REWARDS.forEach((r, k) => this.card(r, 290 + (k % 2) * 500, 790 + Math.floor(k / 2) * 250, fresh.includes(r.id)));
+  init(data: { changed?: string; fresh?: string[] }) {
+    this.changed = data.changed ?? null;
+    // les badges « Nouveau » ne s'affichent qu'à la première consultation
+    this.fresh = data.fresh ?? Save.get().collection.fresh.slice();
     Save.clearFresh();
   }
 
-  private equipped(r: RewardDef) {
+  create() {
+    const owned = REWARDS.filter((r) => Save.owns(r.id)).length;
+    let y = setupScreen(this, { title: 'Collection', back: 'Home', nav: 'Collection', subtitle: `${owned}/${REWARDS.length} objets · uniquement décoratifs` });
+    y = this.preview(y);
+    for (const [title, slots] of SECTIONS) {
+      const items = REWARDS.filter((r) => slots.includes(r.slot));
+      if (!items.length) continue;
+      y += space.section;
+      label(this, space.margin + 8, y + 24, title, font.body + 2, { weight: 700, align: 'left' });
+      y += 70;
+      items.forEach((r) => { this.card(r, y); y += 196 + space.gap; });
+    }
+    finishScreen(this, y);
+  }
+
+  private equippedOf(r: RewardDef) {
     const e = Save.get().collection.equipped;
     if (r.slot === 'decor') return e.decor.includes(r.id);
     if (r.slot === 'badge') return false;
     return e[r.slot] === r.id;
   }
 
-  private card(r: RewardDef, x: number, y: number, isNew: boolean) {
+  private preview(top: number) {
+    const x = space.margin, w = W - space.margin * 2, h = 560;
+    cardBg(this, x, top, w, h, { fill: '#fffaf0' });
+    const eq = Save.get().collection.equipped;
+    const pip = new Player(this, W / 2, top + 400, 1.6, { hat: eq.hat === 'hat-gardener', golden: eq.scarf === 'scarf-golden' });
+    pip.setName('collection-pip');
+    if (this.changed && !reduced()) this.time.delayedCall(120, () => pip.joy());
+    if (eq.companion === 'companion-duckling') this.add.image(W / 2 + 200, top + 420, 'duckling').setOrigin(0.5, 0.9).setScale(1.4).setFlipX(true);
+    if (eq.decor.includes('deco-magic-flower')) this.add.image(W / 2 - 280, top + 430, 'magic-flower').setOrigin(0.5, 0.95).setScale(1.5);
+    if (eq.decor.includes('deco-lanterns')) this.add.image(W / 2 + 330, top + 430, 'lantern').setOrigin(0.5, 0.95).setScale(1.5);
+    const names = REWARDS.filter((r) => r.slot !== 'badge' && this.equippedOf(r)).map((r) => r.name);
+    label(this, W / 2, top + h - 60, names.length ? `Équipé : ${names.join(' · ')}` : 'Rien d’équipé pour l’instant', font.caption + 2, { color: color.inkSoft, weight: 600, wrap: w - 60 });
+    return top + h;
+  }
+
+  private card(r: RewardDef, top: number) {
     const own = Save.owns(r.id);
-    const on = this.equipped(r);
-    const w = 460, h = 220;
-    const c = this.add.container(x, y);
-    const g = this.add.graphics();
-    g.fillStyle(0x2c4a30, 0.12);
-    g.fillRoundedRect(-w / 2 + 4, -h / 2 + 8, w, h, 34);
-    g.fillStyle(own ? 0xffffff : 0xf3ecdc, 0.96);
-    g.fillRoundedRect(-w / 2, -h / 2, w, h, 34);
-    g.lineStyle(on ? 6 : 3, on ? hex(C.meadow) : own ? hex(C.orange) : 0xd8d0bd, 1);
-    g.strokeRoundedRect(-w / 2, -h / 2, w, h, 34);
-    c.add(g);
-    const icon = this.add.image(-w / 2 + 90, 0, own ? r.icon : r.slot === 'badge' ? 'badge-locked' : r.icon).setScale(r.slot === 'badge' ? 0.85 : r.icon === 'magic-flower' || r.icon === 'lantern' ? 1.2 : 1);
+    const on = this.equippedOf(r);
+    const x = space.margin, w = W - space.margin * 2, h = 196;
+    const c = this.add.container(0, 0);
+    c.add(cardBg(this, x, top, w, h, { fill: own ? '#ffffff' : '#f3ecdc', border: on ? color.success : color.border, borderW: on ? 5 : 3 }));
+    const icon = this.add.image(x + 100, top + h / 2, own ? r.icon : r.slot === 'badge' ? 'badge-locked' : r.icon).setScale(r.slot === 'badge' ? 0.8 : r.icon === 'magic-flower' || r.icon === 'lantern' ? 1.05 : 0.95);
     if (!own) icon.setTint(0x8f8b80).setAlpha(0.45);
     c.add(icon);
-    c.add(txt(this, -w / 2 + 180, -40, r.name, 32, { weight: 700, align: 'left', wrap: 260, color: own ? C.ink : C.inkSoft }).setOrigin(0, 0.5));
-    const state = !own ? r.how : r.slot === 'badge' ? 'Badge obtenu' : on ? 'Équipé · toucher pour retirer' : 'Toucher pour équiper';
-    c.add(txt(this, -w / 2 + 180, 36, state, 26, { weight: 500, align: 'left', wrap: 260, color: on ? C.meadowDark : C.inkSoft }).setOrigin(0, 0.5).setName(`state-${r.id}`));
-    if (!own) c.add(this.add.image(w / 2 - 40, -h / 2 + 40, 'icon-lock').setScale(0.5));
-    if (isNew) {
-      const tag = this.add.container(w / 2 - 70, -h / 2 + 4);
-      const tg = this.add.graphics();
-      tg.fillStyle(hex(C.orange), 1);
-      tg.fillRoundedRect(-62, -22, 124, 44, 22);
-      tag.add([tg, txt(this, 0, 0, 'Nouveau', 26, { color: '#fff', weight: 700 })]);
-      c.add(tag);
-      if (!reduced()) this.tweens.add({ targets: tag, scale: 1.1, duration: 600, yoyo: true, repeat: -1 });
+    c.add(label(this, x + 200, top + h / 2 - 34, r.name, font.body + 1, { weight: 700, align: 'left', color: own ? color.ink : color.inkSoft }));
+    c.add(label(this, x + 200, top + h / 2 + 30, own ? (r.slot === 'badge' ? 'Badge obtenu' : r.how) : r.how, font.caption, { color: color.inkSoft, weight: 500, align: 'left', wrap: w - 520 }));
+    const state = !own ? 'VERROUILLÉ' : r.slot === 'badge' ? 'OBTENU' : on ? 'ÉQUIPÉ' : 'ÉQUIPER';
+    const tone = !own ? 'locked' : on || r.slot === 'badge' ? 'success' : 'primary';
+    const pill = chip(this, x + w - 36, top + h / 2, state, tone, { align: 'right', outline: state === 'ÉQUIPER' });
+    pill.setName(`state-${r.id}`);
+    c.add(pill);
+    if (this.fresh.includes(r.id)) {
+      c.add(chip(this, x + 36, top + 6, 'Nouveau', 'accent', { align: 'left' }));
     }
-    const hit = this.add.rectangle(0, 0, w, h, 0, 0).setInteractive({ useHandCursor: true });
+    if (this.changed === r.id) pop(this, pill, 1.15);
+    const hit = this.add.rectangle(x + w / 2, top + h / 2, w, h, 0, 0).setInteractive({ useHandCursor: true });
     hit.name = `item-${r.id}`;
-    hit.on('pointerup', () => {
+    hit.on('pointerup', (p: Phaser.Input.Pointer) => {
+      if (Math.abs(p.getDistanceY()) > 30) return;
       Sfx.click();
-      if (!own) return toast(this, r.how, 1820, 2000);
-      if (r.slot === 'badge') return toast(this, `Badge : ${r.name}`, 1820, 1600);
+      if (!own || r.slot === 'badge') return pop(this, c, 1.02);
       if (r.slot === 'decor') Save.toggleDecor(r.id, !on);
       else Save.equip(r.slot, on ? null : r.id);
-      this.scene.restart();
+      const scroll = this.cameras.main.scrollY;
+      this.scene.restart({ changed: r.id, fresh: [] });
+      this.events.once('create', () => this.cameras.main.setScroll(0, scroll));
     });
     c.add(hit);
   }

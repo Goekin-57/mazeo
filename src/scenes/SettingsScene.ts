@@ -1,10 +1,11 @@
 import Phaser from 'phaser';
-import { C, hex } from '../art/palette';
 import { syncAmbience } from '../audio/sfx';
-import { Save } from '../save';
-import { button, centerCamera, toast, toggle, txt, W, H } from '../ui/ui';
+import { Save, type Settings } from '../save';
+import { cardBg, label, uiButton } from '../ui/components';
+import { color, font, space, touch } from '../ui/theme';
+import { H, toast, toggle, W } from '../ui/ui';
 
-/** Paramètres (superposé à l'écran appelant). */
+/** Paramètres (superposés à l'écran appelant, qui est mis en pause). */
 export class SettingsScene extends Phaser.Scene {
   private from = 'Home';
   constructor() {
@@ -16,50 +17,42 @@ export class SettingsScene extends Phaser.Scene {
   }
 
   create() {
-    centerCamera(this);
-    this.add.rectangle(W / 2, 960, W, H + 20, 0x2c4a30, 0.4).setInteractive();
-    const g = this.add.graphics();
-    const top = 380, ph = 1120;
-    g.fillStyle(0x2c4a30, 0.2);
-    g.fillRoundedRect(W / 2 - 420, top + 12, 840, ph, 56);
-    g.fillStyle(0xfffbf0, 0.98);
-    g.fillRoundedRect(W / 2 - 420, top, 840, ph, 56);
-    g.lineStyle(5, hex(C.sage), 1);
-    g.strokeRoundedRect(W / 2 - 420, top, 840, ph, 56);
-    this.add.image(W / 2, top + 90, 'icon-gear').setScale(1.2);
-    txt(this, W / 2, top + 175, 'Paramètres', 62, { weight: 700 });
-
-    const rows: [string, string, keyof ReturnType<typeof Save.settings>][] = [
-      ['icon-sound-on', 'Effets sonores', 'sound'],
-      ['icon-sound-on', 'Ambiance du jardin', 'ambience'],
-      ['icon-motion', 'Animations réduites', 'reducedMotion'],
+    this.add.rectangle(W / 2, H / 2, W, H, color.scrim, 0.42).setInteractive();
+    const w = W - space.margin * 2 - 40, h = 1420;
+    const x0 = (W - w) / 2, top = (H - h) / 2;
+    cardBg(this, x0, top, w, h);
+    label(this, W / 2, top + 90, 'Paramètres', font.title + 4, { weight: 700 });
+    const rows: [string, keyof Settings, string][] = [
+      ['Effets sonores', 'sound', ''],
+      ['Ambiance du jardin', 'ambience', ''],
+      ['Animations réduites', 'reducedMotion', 'Limite les mouvements et effets à l’écran'],
+      ['Présentation des niveaux', 'levelIntro', 'Met en évidence la sortie à la première visite'],
     ];
-    rows.forEach(([icon, label, key], k) => {
-      const y = top + 320 + k * 130;
-      this.add.image(W / 2 - 320, y, icon).setScale(0.75);
-      txt(this, W / 2 - 270, y, label, 42, { align: 'left', weight: 500 }).setOrigin(0, 0.5);
-      toggle(this, W / 2 + 290, y, Save.settings()[key], () => {
+    rows.forEach(([text, key, help], i) => {
+      const y = top + 250 + i * 190;
+      label(this, x0 + space.pad + 30, y - (help ? 20 : 0), text, font.body, { weight: 600, align: 'left' });
+      if (help) label(this, x0 + space.pad + 30, y + 34, help, font.caption, { color: color.inkSoft, weight: 500, align: 'left', wrap: w - 360 });
+      toggle(this, x0 + w - space.pad - 100, y, Save.settings()[key] as boolean, () => {
         Save.setSetting(key, !Save.settings()[key]);
         syncAmbience();
-        return Save.settings()[key];
+        return Save.settings()[key] as boolean;
       }, `toggle-${key}`);
     });
-    txt(this, W / 2, top + 700, 'Les animations réduites limitent les mouvements\net les effets à l’écran.', 30, { color: C.inkSoft, weight: 400 });
-
+    const bw = w - space.pad * 2 - 40;
     let confirm = false;
-    const reset = button(this, W / 2, top + 840, 'pill-cream', { label: 'Réinitialiser la progression', size: 36 }, () => {
+    const reset = uiButton(this, W / 2, top + h - 330, 'secondary', { label: 'Réinitialiser la progression', width: bw, name: 'btn-reset' }, () => {
       if (!confirm) {
         confirm = true;
-        toast(this, 'Touche encore pour tout effacer', 1640, 2200);
-        this.time.delayedCall(2500, () => (confirm = false));
+        reset.setLabel('Toucher encore pour tout effacer');
+        this.time.delayedCall(3000, () => { confirm = false; reset.setLabel('Réinitialiser la progression'); });
         return;
       }
       Save.resetProgress();
-      toast(this, 'Progression effacée', 1640, 1600);
+      reset.setLabel('Progression effacée');
+      toast(this, 'Progression effacée', top + h - 470, 1600);
       confirm = false;
-    }, 'btn-reset');
-    reset.setScale(0.9);
-    button(this, W / 2, top + 990, 'pill-orange', { label: 'Fermer', size: 48 }, () => this.close(), 'btn-close');
+    });
+    uiButton(this, W / 2, top + h - space.pad - touch.primaryH / 2 - 30, 'primary', { label: 'FERMER', width: bw, name: 'btn-close' }, () => this.close());
   }
 
   private close() {

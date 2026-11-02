@@ -17,7 +17,7 @@ export async function open(page: Page, query = '') {
   await page.waitForFunction(() => (window as any).__MAZEO__?.active?.().length > 0, null, { timeout: 60_000 });
 }
 
-export const active = (page: Page) => page.evaluate(() => (window as any).__MAZEO__.active() as string[]);
+export const active = (page: Page) => page.evaluate(() => ((window as any).__MAZEO__?.active() ?? []) as string[]);
 export const state = (page: Page) => page.evaluate(() => (window as any).__MAZEO__.state() as S | null);
 
 export async function waitScene(page: Page, key: string) {
@@ -37,8 +37,13 @@ export async function cellPos(page: Page, cell: number) {
 }
 
 export async function objectPos(page: Page, name: string) {
-  const p = await page.evaluate((n) => (window as any).__MAZEO__.objectPage(n), name);
+  const get = () => page.evaluate((n) => (window as any).__MAZEO__.objectPage(n), name);
+  let p = await get();
   if (!p) throw new Error(`objet introuvable : ${name}`);
+  // si l'appel a fait défiler l'écran, la caméra ne prend la nouvelle position qu'à l'image suivante
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  await page.waitForTimeout(120);
+  p = (await get()) ?? p;
   return p as { x: number; y: number };
 }
 
@@ -113,3 +118,6 @@ export async function solveCurrent(page: Page, info: TestInfo) {
   await drag(page, info, st.pos, await solution(page));
   await waitIdle(page);
 }
+
+export const info = (page: Page, name: string) => page.evaluate((n) => (window as any).__MAZEO__.info(n), name) as Promise<{ visible: boolean; enabled: boolean; text: string | null; scene: string } | null>;
+export const isPaused = (page: Page) => page.evaluate(() => (window as any).__MAZEO__.game.scene.isPaused('Game'));

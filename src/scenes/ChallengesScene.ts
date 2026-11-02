@@ -1,64 +1,41 @@
 import Phaser from 'phaser';
 import { drawThumb } from '../art/board';
-import { C, hex } from '../art/palette';
 import { dailyFor, findPuzzle, formatDuration, msUntilNextDaily, today, weeklyFor } from '../content/challenges/calendar';
 import { parseLevel } from '../core/grid';
 import type { LevelDef } from '../core/types';
 import { optimalMoves } from '../progress';
 import { Save } from '../save';
 import { challengeCode, challengeLink, parseChallengeCode } from '../social/share';
-import { backdrop, button, centerCamera, fadeIn, goTo, toast, txt, W } from '../ui/ui';
+import { cardBg, chip, fixToScreen, label, uiButton } from '../ui/components';
+import { finishScreen, setupScreen } from '../ui/screen';
+import { color, font, space, touch } from '../ui/theme';
+import { goTo, H, toast, W } from '../ui/ui';
 
-const DIFF_COLOR: Record<string, string> = { Facile: C.meadow, Intermédiaire: C.orange, Expert: '#b4637a' };
+const DIFF_TONE: Record<string, string> = { Facile: color.success, Intermédiaire: color.primary, Expert: '#b4637a' };
 
-/** Mode Défis : défi du jour, défi hebdomadaire, historique. Même moteur que l'aventure. */
+/** Mode Défis : le défi du jour est l'élément principal ; hebdomadaire et historique ensuite. */
 export class ChallengesScene extends Phaser.Scene {
   private linked: string | null = null;
+  private historyOpen = false;
   constructor() {
     super('Challenges');
   }
 
-  init(data: { linked?: string }) {
+  init(data: { linked?: string; historyOpen?: boolean }) {
     this.linked = data.linked ?? null;
+    this.historyOpen = !!data.historyOpen;
   }
 
   create() {
-    this.input.enabled = true;
-    centerCamera(this);
-    fadeIn(this);
-    backdrop(this, { clouds: false });
     const now = today();
     const daily = dailyFor(now);
     Save.noteDaily(daily.contextId, daily.puzzle.key, daily.puzzle.version);
-
-    button(this, 96, 96, 'btn-small', { icon: 'icon-back', iconScale: 0.9 }, () => goTo(this, 'Home'), 'btn-back').setScale(0.95);
-    txt(this, W / 2 + 30, 104, 'Défis', 66, { weight: 700 });
-    txt(this, W / 2, 182, 'Un labyrinthe par jour, le même pour tous les joueurs', 32, { color: C.inkSoft, weight: 500 });
-
-    this.dailyCard(daily.puzzle, daily.contextId, now);
-    this.weeklyCard(now);
-    this.historyCard(daily.contextId);
-    txt(this, W / 2, 1862, 'Classé : sans annulation, score = nombre de cases (égalité = même rang).\nEntraînement : annulations permises, non classé.', 26, { color: C.inkSoft, weight: 400 });
-
+    let y = setupScreen(this, { title: 'Défis', back: 'Home', nav: 'Challenges' });
+    y = this.dailyCard(daily.puzzle, daily.contextId, now, y);
+    y = this.weeklyCard(now, y + space.section);
+    y = this.historySection(daily.contextId, y + space.section);
+    finishScreen(this, y);
     if (this.linked) this.linkedPanel(this.linked);
-  }
-
-  private panel(top: number, h: number) {
-    const g = this.add.graphics();
-    g.fillStyle(0x2c4a30, 0.12);
-    g.fillRoundedRect(60, top + 8, W - 120, h, 44);
-    g.fillStyle(0xfffbf0, 0.96);
-    g.fillRoundedRect(60, top, W - 120, h, 44);
-    g.lineStyle(3, hex(C.creamDark), 1);
-    g.strokeRoundedRect(60, top, W - 120, h, 44);
-  }
-
-  private chip(x: number, y: number, label: string) {
-    const g = this.add.graphics();
-    const w = label.length * 17 + 40;
-    g.fillStyle(hex(DIFF_COLOR[label] ?? C.sage), 1);
-    g.fillRoundedRect(x - w / 2, y - 24, w, 48, 24);
-    txt(this, x, y, label, 28, { color: '#ffffff', weight: 700 });
   }
 
   private thumb(def: LevelDef, w: number, h: number) {
@@ -67,82 +44,101 @@ export class ChallengesScene extends Phaser.Scene {
     return k;
   }
 
-  private dailyCard(p: LevelDef, contextId: string, now: Date) {
-    const top = 240, h = 650;
-    this.panel(top, h);
-    const date = now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' });
-    txt(this, 110, top + 60, 'Défi du jour', 44, { weight: 700, align: 'left' }).setOrigin(0, 0.5);
-    txt(this, 110, top + 110, date.charAt(0).toUpperCase() + date.slice(1), 30, { color: C.inkSoft, weight: 500, align: 'left' }).setOrigin(0, 0.5);
-    this.chip(W - 220, top + 62, p.difficulty);
-    this.add.image(270, top + 300, this.thumb(p, 300, 260));
+  private dailyCard(p: LevelDef, contextId: string, now: Date, top: number) {
+    const x = space.margin, w = W - space.margin * 2, pad = space.pad + 12;
     const rec = Save.record(p.key, p.version);
-    const x = 460;
-    txt(this, x, top + 190, p.name, 40, { weight: 700, align: 'left' }).setOrigin(0, 0.5);
-    const lines = [
-      rec?.bestMoves ? `Meilleur : ${rec.bestMoves} cases` : 'Pas encore réussi',
-      rec?.bestRankedMoves ? `Meilleur classé : ${rec.bestRankedMoves} cases` : 'Aucune tentative classée réussie',
-      // l'optimal du solveur n'est révélé qu'après une première réussite
-      rec?.bestMoves ? `Optimal connu : ${optimalMoves(p)} cases` : 'Optimal : révélé après une réussite',
-    ];
-    lines.forEach((l, i) => txt(this, x, top + 252 + i * 50, l, 31, { weight: i === 0 ? 600 : 500, color: i === 0 ? C.ink : C.inkSoft, align: 'left' }).setOrigin(0, 0.5).setName(`daily-line-${i}`));
-    const label = 'Défi du jour';
-    button(this, 320, top + 500, 'pill-sm-cream', { label: 'Entraînement', size: 36 }, () => goTo(this, 'Game', { kind: 'challenge', key: p.key, contextId, ranked: false, label }), 'daily-practice');
-    button(this, 760, top + 500, 'pill-sm-orange', { label: 'Tentative classée', size: 32 }, () => goTo(this, 'Game', { kind: 'challenge', key: p.key, contextId, ranked: true, label }), 'daily-ranked');
-    const cd = txt(this, 110, top + 600, '', 30, { color: C.inkSoft, weight: 600, align: 'left' }).setOrigin(0, 0.5);
+    const done = !!rec?.bestMoves;
+    const h = 1120;
+    cardBg(this, x, top, w, h, { border: color.primary, borderW: 5 });
+    const date = now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' });
+    label(this, x + pad, top + 66, 'Défi du jour', font.heading + 4, { weight: 700, align: 'left' });
+    label(this, x + pad, top + 124, date.charAt(0).toUpperCase() + date.slice(1), font.caption, { color: color.inkSoft, weight: 500, align: 'left' });
+    chip(this, x + w - pad, top + 70, p.difficulty, DIFF_TONE[p.difficulty] ?? color.accent, { align: 'right' });
+    // aperçu + état
+    this.add.image(x + pad + 160, top + 350, this.thumb(p, 320, 300));
+    const tx = x + pad + 360;
+    label(this, tx, top + 230, p.name, font.heading, { weight: 700, align: 'left', wrap: w - pad - 380 });
+    chip(this, tx, top + 312, done ? `Réussi · ${rec!.bestMoves} cases` : 'À faire', done ? 'success' : 'neutral', { align: 'left' });
+    label(this, tx, top + 392, rec?.bestRankedMoves ? `Meilleur classé : ${rec.bestRankedMoves}` : 'Pas encore de score classé', font.caption + 2, { color: color.inkSoft, weight: 500, align: 'left', wrap: x + w - pad - tx }).setName('daily-line-1');
+    // l'optimal du solveur n'est révélé qu'après une première réussite
+    label(this, tx, top + 460, done ? `Optimal connu : ${optimalMoves(p)} cases` : 'Optimal révélé après une réussite', font.caption + 2, { color: color.inkSoft, weight: 500, align: 'left', wrap: x + w - pad - tx }).setName('daily-line-2');
+    // actions : classé (principal) puis entraînement (secondaire), avec leur différence
+    const bw = w - pad * 2;
+    const label_ = 'Défi du jour';
+    let by = top + 600;
+    uiButton(this, W / 2, by, 'primary', { label: 'TENTATIVE CLASSÉE', width: bw, name: 'daily-ranked' }, () => goTo(this, 'Game', { kind: 'challenge', key: p.key, contextId, ranked: true, label: label_ }));
+    label(this, W / 2, by + touch.primaryH / 2 + 40, 'Mêmes règles pour tous · sans annulation', font.caption, { color: color.inkSoft, weight: 500, wrap: bw });
+    by += touch.primaryH + 130;
+    uiButton(this, W / 2, by, 'secondary', { label: 'Entraînement', width: bw, name: 'daily-practice' }, () => goTo(this, 'Game', { kind: 'challenge', key: p.key, contextId, ranked: false, label: label_ }));
+    label(this, W / 2, by + touch.secondaryH / 2 + 40, 'Annulation permise · non classé', font.caption, { color: color.inkSoft, weight: 500, wrap: bw });
+    // rotation + partage
+    const cd = label(this, x + pad, top + h - 56, '', font.caption + 2, { color: color.inkSoft, weight: 600, align: 'left' });
     const tick = () => cd.setText(`Prochain défi dans ${formatDuration(msUntilNextDaily(today()))}`);
     tick();
     this.time.addEvent({ delay: 30_000, loop: true, callback: tick });
-    button(this, W - 250, top + 600, 'pill-sm-cream', { label: 'Défier un ami', icon: 'icon-share', iconScale: 0.55, size: 30, iconX: -110 }, () => this.copyLink(p), 'daily-share').setScale(0.8);
+    uiButton(this, x + w - pad - touch.iconVisual / 2, top + h - 60, 'icon', { icon: 'icon-share', name: 'daily-share' }, () => this.copyLink(p));
+    return top + h;
   }
 
-  private weeklyCard(now: Date) {
+  private weeklyCard(now: Date, top: number) {
     const wk = weeklyFor(now);
-    const top = 920, h = 570;
-    this.panel(top, h);
+    const x = space.margin, w = W - space.margin * 2, pad = space.pad + 12;
+    const rowH = 210;
+    const h = 170 + rowH * 3 + 110;
+    cardBg(this, x, top, w, h);
     const n = wk.contextId.split('-W')[1];
-    txt(this, 110, top + 58, `Défi de la semaine · S${n}`, 40, { weight: 700, align: 'left' }).setOrigin(0, 0.5);
-    txt(this, W - 110, top + 58, `Fin dans ${formatDuration(wk.endsAt.getTime() - today().getTime())}`, 28, { color: C.inkSoft, weight: 500, align: 'right' }).setOrigin(1, 0.5);
-    let total = 0;
-    let doneCount = 0;
+    label(this, x + pad, top + 66, `Défi de la semaine · S${n}`, font.heading, { weight: 700, align: 'left' });
+    label(this, x + pad, top + 122, `3 labyrinthes classés · fin dans ${formatDuration(wk.endsAt.getTime() - today().getTime())}`, font.caption, { color: color.inkSoft, weight: 500, align: 'left' });
+    let total = 0, doneCount = 0;
     wk.puzzles.forEach((p, i) => {
-      const y = top + 160 + i * 112;
+      const y = top + 170 + i * rowH + rowH / 2;
       const rec = Save.record(p.key, p.version);
       const best = rec?.bestRankedMoves ?? null;
       if (best !== null) { total += best; doneCount++; }
-      this.add.image(150, y, this.thumb(p, 110, 92));
-      txt(this, 230, y - 18, p.name, 32, { weight: 700, align: 'left' }).setOrigin(0, 0.5);
-      txt(this, 230, y + 22, `${p.difficulty} · ${best !== null ? `${best} cases` : 'à jouer'}`, 28, { color: C.inkSoft, weight: 500, align: 'left' }).setOrigin(0, 0.5);
-      button(this, W - 190, y, 'pill-sm-orange', { label: best !== null ? 'Améliorer' : 'Jouer', size: 34 }, () => goTo(this, 'Game', { kind: 'challenge', key: p.key, contextId: wk.contextId, ranked: true, label: `Semaine · ${i + 1}/3` }), `weekly-${i}`).setScale(0.7);
+      this.add.image(x + pad + 70, y, this.thumb(p, 140, 140));
+      label(this, x + pad + 170, y - 30, p.name, font.body, { weight: 700, align: 'left', wrap: w - pad * 2 - 170 - 300 });
+      chip(this, x + pad + 170, y + 32, best !== null ? `✓ ${best} cases` : p.difficulty, best !== null ? 'success' : 'neutral', { align: 'left' });
+      uiButton(this, x + w - pad - 130, y, 'secondary', { label: best !== null ? 'Améliorer' : 'Jouer', width: 260, name: `weekly-${i}` },
+        () => goTo(this, 'Game', { kind: 'challenge', key: p.key, contextId: wk.contextId, ranked: true, label: `Semaine ${i + 1}/3` }));
     });
-    const msg = doneCount === 3 ? `Score de la semaine : ${total} cases` : `Score de la semaine : termine les 3 labyrinthes (${doneCount}/3)`;
-    txt(this, W / 2, top + 500, msg, 32, { weight: 700, color: doneCount === 3 ? C.orangeDeep : C.ink }).setName('weekly-total');
+    const msg = doneCount === 3 ? `Score de la semaine : ${total} cases` : `Termine les 3 labyrinthes pour obtenir ton score (${doneCount}/3)`;
+    label(this, W / 2, top + h - 60, msg, font.label, { weight: 700, color: doneCount === 3 ? color.primaryDeep : color.ink, wrap: w - pad * 2 }).setName('weekly-total');
+    return top + h;
   }
 
-  private historyCard(todayId: string) {
-    const top = 1520, h = 290;
-    this.panel(top, h);
-    txt(this, 110, top + 50, 'Défis précédents', 36, { weight: 700, align: 'left' }).setOrigin(0, 0.5);
-    const past = Object.entries(Save.get().challenges.dailies).filter(([k]) => k !== todayId).sort((a, b) => (a[0] < b[0] ? 1 : -1)).slice(0, 3);
-    if (!past.length) {
-      txt(this, W / 2, top + 160, 'Les défis du jour que tu découvres apparaîtront ici.', 30, { color: C.inkSoft, weight: 500 });
-      return;
+  /** Historique compact, repliable ; absent tant qu'il est vide. */
+  private historySection(todayId: string, top: number) {
+    const past = Object.entries(Save.get().challenges.dailies).filter(([k]) => k !== todayId).sort((a, b) => (a[0] < b[0] ? 1 : -1)).slice(0, 7);
+    if (!past.length) return top - space.section;
+    const x = space.margin, w = W - space.margin * 2, pad = space.pad + 12;
+    const rowH = 140;
+    const h = 130 + (this.historyOpen ? past.length * rowH : 0);
+    cardBg(this, x, top, w, h, { alpha: 0.85 });
+    label(this, x + pad, top + 65, `Défis précédents (${past.length})`, font.body, { weight: 700, align: 'left' });
+    label(this, x + w - pad, top + 65, this.historyOpen ? 'Masquer ▴' : 'Afficher ▾', font.label, { weight: 700, align: 'right', color: color.accent });
+    const hit = this.add.rectangle(x + w / 2, top + 65, w, 130, 0, 0).setInteractive({ useHandCursor: true });
+    hit.name = 'history-toggle';
+    hit.on('pointerup', () => this.scene.restart({ historyOpen: !this.historyOpen }));
+    if (this.historyOpen) {
+      past.forEach(([ctx, info], i) => {
+        const p = findPuzzle(info.puzzleId);
+        if (!p || p.version !== info.version) return;
+        const y = top + 130 + i * rowH + rowH / 2;
+        const rec = Save.record(p.key, p.version);
+        const day = ctx.replace('daily-', '');
+        label(this, x + pad, y - 22, `${day.slice(8)}/${day.slice(5, 7)} · ${p.name}`, font.label, { weight: 600, align: 'left' });
+        label(this, x + pad, y + 26, rec?.bestMoves ? `Meilleur : ${rec.bestMoves} cases` : 'Non réussi', font.caption, { color: color.inkSoft, weight: 500, align: 'left' });
+        uiButton(this, x + w - pad - 140, y, 'secondary', { label: 'Rejouer', width: 280, name: `history-${i}` }, () => goTo(this, 'Game', { kind: 'challenge', key: p.key, contextId: ctx, ranked: false, label: 'Défi précédent' }));
+      });
     }
-    past.forEach(([ctx, info], i) => {
-      const p = findPuzzle(info.puzzleId);
-      if (!p || p.version !== info.version) return;
-      const y = top + 120 + i * 62;
-      const rec = Save.record(p.key, p.version);
-      const day = ctx.replace('daily-', '');
-      txt(this, 110, y, `${day.slice(8)}/${day.slice(5, 7)} · ${p.name}`, 30, { weight: 600, align: 'left' }).setOrigin(0, 0.5);
-      txt(this, W - 330, y, rec?.bestMoves ? `${rec.bestMoves} cases` : '—', 30, { color: C.inkSoft, weight: 500, align: 'right' }).setOrigin(1, 0.5);
-      button(this, W - 190, y, 'pill-sm-cream', { label: 'Rejouer', size: 34 }, () => goTo(this, 'Game', { kind: 'challenge', key: p.key, contextId: ctx, ranked: false, label: 'Défi précédent' }), `history-${i}`).setScale(0.55);
-    });
+    return top + h;
   }
 
   private copyLink(p: LevelDef) {
     const link = challengeLink(p.key, p.version);
-    const ok = () => toast(this, 'Lien copié : ton ami jouera exactement le même labyrinthe', 1780, 2600);
-    const fail = () => toast(this, `Code du défi : ${challengeCode(p.key, p.version)}`, 1780, 5000);
+    const y = this.cameras.main.scrollY + H / 2;
+    const ok = () => toast(this, 'Lien copié : ton ami jouera exactement le même labyrinthe', y, 2600);
+    const fail = () => toast(this, `Code du défi : ${challengeCode(p.key, p.version)}`, y, 5000);
     try {
       navigator.clipboard.writeText(link).then(ok, fail);
     } catch {
@@ -154,24 +150,22 @@ export class ChallengesScene extends Phaser.Scene {
   private linkedPanel(code: string) {
     const parsed = parseChallengeCode(code);
     if (!parsed || !parsed.ok) {
-      toast(this, parsed && !parsed.ok ? parsed.reason : 'Lien de défi invalide', 1780, 4000);
+      toast(this, parsed && !parsed.ok ? parsed.reason : 'Lien de défi invalide', H / 2, 4000);
       return;
     }
     const p = findPuzzle(parsed.puzzleId)!;
-    const c = this.add.container(0, 0).setDepth(5000);
-    c.add(this.add.rectangle(W / 2, 960, W, 3000, 0x2c4a30, 0.4).setInteractive());
-    const g = this.add.graphics();
-    g.fillStyle(0xfffbf0, 0.98);
-    g.fillRoundedRect(110, 560, W - 220, 760, 50);
-    g.lineStyle(5, hex(C.orange));
-    g.strokeRoundedRect(110, 560, W - 220, 760, 50);
-    c.add(g);
-    c.add(txt(this, W / 2, 640, 'Défi reçu', 56, { weight: 700 }));
-    c.add(txt(this, W / 2, 710, `${p.name} · ${p.difficulty}`, 34, { color: C.inkSoft, weight: 600 }));
-    c.add(this.add.image(W / 2, 920, this.thumb(p, 300, 260)));
+    const c = this.add.container(0, 0).setDepth(50000).setScrollFactor(0);
+    c.add(this.add.rectangle(W / 2, H / 2, W, H, color.scrim, 0.42).setInteractive());
+    const w = W - space.margin * 2, h = 1150, top = (H - h) / 2;
+    c.add(cardBg(this, space.margin, top, w, h, { border: color.primary, borderW: 5 }));
+    c.add(label(this, W / 2, top + 80, 'Défi reçu', font.title + 4, { weight: 700 }));
+    c.add(label(this, W / 2, top + 150, `${p.name} · ${p.difficulty}`, font.body, { color: color.inkSoft, weight: 600 }));
+    c.add(this.add.image(W / 2, top + 380, this.thumb(p, 320, 300)));
     const ctx = `link-${p.key}@${p.version}`;
-    c.add(button(this, W / 2 - 200, 1170, 'pill-sm-cream', { label: 'Entraînement', size: 36 }, () => goTo(this, 'Game', { kind: 'challenge', key: p.key, contextId: ctx, ranked: false, label: 'Défi reçu' }), 'linked-practice'));
-    c.add(button(this, W / 2 + 200, 1170, 'pill-sm-orange', { label: 'Classée', size: 36 }, () => goTo(this, 'Game', { kind: 'challenge', key: p.key, contextId: ctx, ranked: true, label: 'Défi reçu' }), 'linked-ranked'));
-    c.add(button(this, W / 2, 1270, 'pill-sm-cream', { label: 'Plus tard', size: 32 }, () => c.destroy(), 'linked-close').setScale(0.75));
+    const bw = w - 2 * (space.pad + 12);
+    c.add(uiButton(this, W / 2, top + 620, 'primary', { label: 'TENTATIVE CLASSÉE', width: bw, name: 'linked-ranked' }, () => goTo(this, 'Game', { kind: 'challenge', key: p.key, contextId: ctx, ranked: true, label: 'Défi reçu' })));
+    c.add(uiButton(this, W / 2, top + 620 + touch.primaryH + space.section, 'secondary', { label: 'Entraînement', width: bw, name: 'linked-practice' }, () => goTo(this, 'Game', { kind: 'challenge', key: p.key, contextId: ctx, ranked: false, label: 'Défi reçu' })));
+    c.add(uiButton(this, W / 2, top + h - space.pad - touch.secondaryH / 2 - 20, 'secondary', { label: 'Plus tard', width: 360, name: 'linked-close', small: true }, () => c.destroy()));
+    fixToScreen(c);
   }
 }

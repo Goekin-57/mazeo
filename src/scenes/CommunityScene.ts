@@ -1,16 +1,19 @@
 import Phaser from 'phaser';
-import { C, hex } from '../art/palette';
-import { dailyFor, findPuzzle, today } from '../content/challenges/calendar';
+import { drawThumb } from '../art/board';
+import { dailyFor, today } from '../content/challenges/calendar';
 import { CHAPTERS } from '../content/chapters';
-import { optimalMoves } from '../progress';
+import { parseLevel } from '../core/grid';
 import { Save } from '../save';
 import { community } from '../social/backend';
 import { challengeCode, challengeLink } from '../social/share';
-import { backdrop, button, centerCamera, fadeIn, goTo, toast, txt, W } from '../ui/ui';
+import { cardBg, chip, label, statTile, uiButton } from '../ui/components';
+import { finishScreen, setupScreen } from '../ui/screen';
+import { color, font, space } from '../ui/theme';
+import { H, toast, W } from '../ui/ui';
 
 /**
- * Communauté : records locaux, classements (indisponibles sans serveur, dit clairement),
- * partage d'un défi par lien. Aucun faux joueur, aucun score présenté comme synchronisé.
+ * Communauté : vraies statistiques locales, partage d'un défi bien visible,
+ * classements indiqués indisponibles (aucun faux joueur).
  */
 export class CommunityScene extends Phaser.Scene {
   constructor() {
@@ -18,72 +21,59 @@ export class CommunityScene extends Phaser.Scene {
   }
 
   create() {
-    this.input.enabled = true;
-    centerCamera(this);
-    fadeIn(this);
-    backdrop(this, { clouds: false });
-    button(this, 96, 96, 'btn-small', { icon: 'icon-back', iconScale: 0.9 }, () => goTo(this, 'Home'), 'btn-back').setScale(0.95);
-    txt(this, W / 2 + 30, 104, 'Communauté', 66, { weight: 700 });
-
-    this.records(220);
-    this.boards(930);
-    this.share(1360);
+    let y = setupScreen(this, { title: 'Communauté', back: 'Home', nav: 'Community' });
+    y = this.stats(y);
+    y = this.share(y + space.section);
+    y = this.boards(y + space.section);
+    finishScreen(this, y);
   }
 
-  private panel(top: number, h: number, title: string) {
-    const g = this.add.graphics();
-    g.fillStyle(0x2c4a30, 0.12);
-    g.fillRoundedRect(60, top + 8, W - 120, h, 44);
-    g.fillStyle(0xfffbf0, 0.96);
-    g.fillRoundedRect(60, top, W - 120, h, 44);
-    g.lineStyle(3, hex(C.creamDark), 1);
-    g.strokeRoundedRect(60, top, W - 120, h, 44);
-    txt(this, 110, top + 56, title, 40, { weight: 700, align: 'left' }).setOrigin(0, 0.5);
-  }
-
-  private records(top: number) {
-    this.panel(top, 680, 'Mes records');
-    const ch = CHAPTERS[0];
-    const done = ch.levels.filter((l) => Save.level(l.key)?.completed);
-    const optimal = done.filter((l) => Save.level(l.key)!.bestMoves === optimalMoves(l)).length;
-    txt(this, 110, top + 130, `${ch.name} : ${done.length}/${ch.levels.length} niveaux · ${optimal} parcours optimaux`, 30, { weight: 600, align: 'left', wrap: 860 }).setOrigin(0, 0.5);
-    const recs = Object.values(Save.get().challenges.records).filter((r) => r.bestMoves !== null)
-      .sort((a, b) => (b.completedAt ?? '').localeCompare(a.completedAt ?? '')).slice(0, 7);
-    if (!recs.length) {
-      txt(this, W / 2, top + 360, 'Réussis un défi pour voir tes records ici.', 32, { color: C.inkSoft, weight: 500 });
-      return;
-    }
-    recs.forEach((r, i) => {
-      const p = findPuzzle(r.puzzleId);
-      const y = top + 210 + i * 64;
-      txt(this, 110, y, `${p?.name ?? r.puzzleId} · ${p?.difficulty ?? ''} (v${r.version})`, 30, { weight: 600, align: 'left' }).setOrigin(0, 0.5);
-      txt(this, W - 110, y, `${r.bestRankedMoves !== null ? `classé ${r.bestRankedMoves}` : 'non classé'} · meilleur ${r.bestMoves}`, 28, { color: C.inkSoft, weight: 500, align: 'right' }).setOrigin(1, 0.5);
-    });
-  }
-
-  private boards(top: number) {
-    this.panel(top, 400, 'Classements');
-    const rows = ['Entre amis', 'Hebdomadaire', 'Mondial'];
-    rows.forEach((r, i) => {
-      const x = 230 + i * 310;
-      this.add.image(x, top + 170, 'icon-lock').setScale(0.8).setAlpha(0.7);
-      txt(this, x, top + 240, r, 32, { weight: 700 });
-      txt(this, x, top + 282, 'Indisponible', 26, { color: C.inkSoft, weight: 500 });
-    });
-    txt(this, W / 2, top + 350, community.online ? '' : community.unavailableReason, 26, { color: C.inkSoft, weight: 400, wrap: 860 });
+  private stats(top: number) {
+    label(this, space.margin + 8, top + 24, 'Mes records', font.body + 2, { weight: 700, align: 'left' });
+    top += 70;
+    const levels = CHAPTERS.flatMap((c) => c.levels);
+    const done = levels.filter((l) => Save.level(l.key)?.completed).length;
+    const d = dailyFor(today()).puzzle;
+    const rec = Save.record(d.key, d.version);
+    const tiles: [string, string, string][] = [
+      [`${done}/${levels.length}`, 'niveaux terminés', 'icon-map'],
+      [`${Save.totalStars()}/${levels.length * 3}`, 'étoiles', 'icon-star'],
+      [`${Save.challengesCompleted()}`, 'défis réussis', 'icon-flag'],
+      [rec?.bestMoves ? `${rec.bestMoves}` : '—', rec?.bestMoves ? 'cases · défi du jour' : 'défi du jour à faire', 'icon-steps'],
+    ];
+    const tw = (W - space.margin * 2 - space.gap) / 2, th = 280;
+    tiles.forEach(([v, cap, ic], i) => statTile(this, space.margin + (i % 2) * (tw + space.gap), top + Math.floor(i / 2) * (th + space.gap), tw, th, v, cap, ic));
+    return top + 2 * th + space.gap;
   }
 
   private share(top: number) {
-    this.panel(top, 440, 'Défier un ami');
     const p = dailyFor(today()).puzzle;
-    txt(this, 110, top + 140, 'Envoie le défi du jour : ton ami jouera exactement le même labyrinthe (même version).', 30, { weight: 500, align: 'left', wrap: 860 }).setOrigin(0, 0.5);
-    txt(this, 110, top + 220, `Code : ${challengeCode(p.key, p.version)}`, 32, { weight: 700, align: 'left' }).setOrigin(0, 0.5).setName('share-code');
-    button(this, W / 2, top + 310, 'pill-sm-orange', { label: 'Copier le lien', icon: 'icon-share', iconScale: 0.6, size: 34, iconX: -120 }, () => {
+    const x = space.margin, w = W - space.margin * 2, pad = space.pad + 12, h = 700;
+    cardBg(this, x, top, w, h, { border: color.primary, borderW: 5 });
+    label(this, x + pad, top + 66, 'Défier un ami', font.heading, { weight: 700, align: 'left' });
+    const k = `cthumb-${p.key}-160`;
+    if (!this.textures.exists(k)) this.textures.addCanvas(k, drawThumb(parseLevel(p), p.theme, 160, 150));
+    this.add.image(x + pad + 80, top + 220, k);
+    label(this, x + pad + 190, top + 180, p.name, font.body + 1, { weight: 700, align: 'left' });
+    chip(this, x + pad + 190, top + 250, `Défi du jour · ${p.difficulty}`, 'neutral', { align: 'left' });
+    label(this, x + pad, top + 370, 'Ton ami ouvre le lien et joue le même labyrinthe, dans la même version.', font.caption + 2, { color: color.inkSoft, weight: 500, align: 'left', wrap: w - pad * 2 });
+    uiButton(this, W / 2, top + 500, 'primary', { label: 'COPIER LE LIEN', icon: 'icon-share', width: w - pad * 2, name: 'share-link' }, () => {
       const link = challengeLink(p.key, p.version);
-      const ok = () => toast(this, 'Lien copié', 1820, 2000);
-      const fail = () => toast(this, link, 1820, 6000);
+      const y = this.cameras.main.scrollY + H / 2;
+      const ok = () => toast(this, 'Lien copié', y, 2000);
+      const fail = () => toast(this, `Code : ${challengeCode(p.key, p.version)}`, y, 6000);
       try { navigator.clipboard.writeText(link).then(ok, fail); } catch { fail(); }
-    }, 'share-link');
-    txt(this, W / 2, top + 400, 'Sans compte en ligne, les scores ne sont pas comparés automatiquement.', 26, { color: C.inkSoft, weight: 400, wrap: 860 });
+    });
+    label(this, W / 2, top + h - 64, 'Les scores ne sont pas encore comparés automatiquement.', font.caption, { color: color.inkSoft, weight: 500, wrap: w - pad * 2 });
+    return top + h;
+  }
+
+  private boards(top: number) {
+    const x = space.margin, w = W - space.margin * 2, pad = space.pad + 12, h = 250;
+    cardBg(this, x, top, w, h, { fill: '#f3ecdc', alpha: 0.9 });
+    this.add.image(x + pad + 46, top + h / 2, 'icon-lock').setScale(0.95).setAlpha(0.75);
+    label(this, x + pad + 110, top + 80, 'Classements : pas encore disponibles', font.body, { weight: 700, align: 'left' });
+    label(this, x + pad + 110, top + 160, community.online ? '' : community.unavailableReason, font.caption, { color: color.inkSoft, weight: 500, align: 'left', wrap: w - pad * 2 - 120 });
+    return top + h;
   }
 }

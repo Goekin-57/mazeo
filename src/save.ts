@@ -7,6 +7,8 @@ export interface Settings {
   sound: boolean;
   ambience: boolean;
   reducedMotion: boolean;
+  /** Courte présentation (Bourgeon, sortie, objectifs) au premier passage d'un niveau. */
+  levelIntro: boolean;
 }
 
 export interface LevelProgress {
@@ -46,6 +48,8 @@ export interface SaveData {
     /** Derniers résultats (format prêt pour une validation serveur). */
     results: ScoreResult[];
   };
+  /** Niveaux dont la présentation a déjà été montrée. */
+  introSeen: string[];
   settings: Settings;
 }
 
@@ -69,7 +73,8 @@ export function defaultSave(): SaveData {
     chapters: {},
     collection: { owned: [], fresh: [], equipped: { hat: null, scarf: null, companion: null, decor: [] } },
     challenges: { records: {}, dailies: {}, results: [] },
-    settings: { sound: true, ambience: true, reducedMotion: prefersReduced() },
+    settings: { sound: true, ambience: true, reducedMotion: prefersReduced(), levelIntro: true },
+    introSeen: [],
   };
 }
 
@@ -104,6 +109,7 @@ function normalize(raw: unknown): SaveData {
       dailies: r.challenges?.dailies ?? {},
       results: r.challenges?.results ?? [],
     },
+    introSeen: Array.isArray(r.introSeen) ? r.introSeen : [],
     settings: { ...base.settings, ...(r.settings ?? {}) },
   };
 }
@@ -156,6 +162,12 @@ export const Save = {
     persist();
   },
   level: (key: string): LevelProgress | undefined => data.levels[key],
+  introSeen: (key: string) => data.introSeen.includes(key),
+  markIntroSeen(key: string) {
+    if (data.introSeen.includes(key)) return;
+    data.introSeen.push(key);
+    persist();
+  },
   setCurrent(key: string) {
     data.currentLevel = key;
     persist();
