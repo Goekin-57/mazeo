@@ -1,0 +1,10 @@
+node_modules/
+dist/
+dist-single/
+mazeo-artifact.html
+test-results/
+playwright-report/
+tests/shots/
+tests/report/
+*.log
+.DS_Store
