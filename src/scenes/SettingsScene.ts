@@ -21,7 +21,7 @@ export class SettingsScene extends Phaser.Scene {
     const w = W - space.margin * 2 - 40, h = 1420;
     const x0 = (W - w) / 2, top = (H - h) / 2;
     cardBg(this, x0, top, w, h);
-    label(this, W / 2, top + 90, 'Paramètres', font.title + 4, { weight: 700 });
+    label(this, W / 2, top + 90, 'Réglages', font.title + 4, { weight: 700 });
     const rows: [string, keyof Settings, string][] = [
       ['Effets sonores', 'sound', ''],
       ['Ambiance du jardin', 'ambience', ''],
@@ -30,29 +30,35 @@ export class SettingsScene extends Phaser.Scene {
     ];
     rows.forEach(([text, key, help], i) => {
       const y = top + 250 + i * 190;
-      label(this, x0 + space.pad + 30, y - (help ? 20 : 0), text, font.body, { weight: 600, align: 'left' });
-      if (help) label(this, x0 + space.pad + 30, y + 34, help, font.caption, { color: color.inkSoft, weight: 500, align: 'left', wrap: w - 360 });
+      label(this, x0 + space.pad + 30, help ? y - 6 : y, text, font.body + 1, { weight: 700, align: 'left', wrap: w - 360 }).setOrigin(0, help ? 1 : 0.5);
+      if (help) label(this, x0 + space.pad + 30, y + 6, help, font.caption + 1, { color: color.inkSoft, weight: 600, align: 'left', wrap: w - 360 }).setOrigin(0, 0);
       toggle(this, x0 + w - space.pad - 100, y, Save.settings()[key] as boolean, () => {
         Save.setSetting(key, !Save.settings()[key]);
         syncAmbience();
         return Save.settings()[key] as boolean;
-      }, `toggle-${key}`);
+      }, `toggle-${key}`, text);
     });
     const bw = w - space.pad * 2 - 40;
-    let confirm = false;
-    const reset = uiButton(this, W / 2, top + h - 330, 'secondary', { label: 'Réinitialiser la progression', width: bw, name: 'btn-reset' }, () => {
-      if (!confirm) {
-        confirm = true;
-        reset.setLabel('Toucher encore pour tout effacer');
-        this.time.delayedCall(3000, () => { confirm = false; reset.setLabel('Réinitialiser la progression'); });
-        return;
-      }
+    uiButton(this, W / 2, top + h - 330, 'secondary', { label: 'Effacer la progression…', width: bw, name: 'btn-reset' }, () => this.confirmReset());
+    uiButton(this, W / 2, top + h - space.pad - touch.primaryH / 2 - 30, 'primary', { label: 'Fermer', width: bw, name: 'btn-close' }, () => this.close());
+  }
+
+  /** Effacement global : confirmation distincte et explicite. */
+  private confirmReset() {
+    const c = this.add.container(0, 0).setDepth(1000).setName('reset-confirm');
+    c.add(this.add.rectangle(W / 2, H / 2, W, H, color.scrim, 0.5).setInteractive());
+    const w = W - space.margin * 2 - 80, h = 640, x0 = (W - w) / 2, top = (H - h) / 2;
+    c.add(cardBg(this, x0, top, w, h, { border: color.danger, borderW: 5 }));
+    c.add(label(this, W / 2, top + 84, 'Effacer toute la progression ?', font.heading + 2, { weight: 700, wrap: w - 80 }));
+    c.add(label(this, W / 2, top + 190, 'Niveaux, étoiles, collection, partie en cours et records de défis seront effacés. Les réglages sont conservés.', font.body, { color: color.inkSoft, weight: 600, wrap: w - 100 }).setOrigin(0.5, 0));
+    const bw = (w - 2 * space.pad - space.gap) / 2;
+    const by = top + h - space.pad - touch.primaryH / 2 - 10;
+    c.add(uiButton(this, x0 + space.pad + bw / 2, by, 'secondary', { label: 'Annuler', width: bw, name: 'reset-cancel' }, () => c.destroy()));
+    c.add(uiButton(this, x0 + w - space.pad - bw / 2, by, 'primary', { label: 'Tout effacer', width: bw, name: 'reset-confirm-btn' }, () => {
       Save.resetProgress();
-      reset.setLabel('Progression effacée');
-      toast(this, 'Progression effacée', top + h - 470, 1600);
-      confirm = false;
-    });
-    uiButton(this, W / 2, top + h - space.pad - touch.primaryH / 2 - 30, 'primary', { label: 'FERMER', width: bw, name: 'btn-close' }, () => this.close());
+      c.destroy();
+      toast(this, 'Progression effacée', top - 60, 1800, 2000);
+    }));
   }
 
   private close() {

@@ -5,6 +5,8 @@ import { writeFileSync } from 'node:fs';
 import { parseLevel } from '../src/core/grid';
 import { initialState, stateKey, step, validMoves } from '../src/core/rules';
 import { solve } from '../src/core/solver';
+import { analyze } from '../src/core/analysis';
+import { CHALLENGE_CRITERIA } from '../src/content/challenges/criteria';
 import type { Grid, LevelDef } from '../src/core/types';
 
 let seed = 20261102;
@@ -149,6 +151,10 @@ for (const cat of ['F', 'I', 'X'] as Cat[]) {
     if (max - min < sp.spread) continue;
     const rate = randomWinRate(g);
     if (rate < sp.rate[0] || rate > sp.rate[1]) continue;
+    // v0.5 : rejette aussi les cartes sans vraie décision (critères documentés dans criteria.ts).
+    // Les 16 cartes figées les respectent toutes : relancer l'outil produit la même bibliothèque.
+    const crit = CHALLENGE_CRITERIA[({ F: 'Facile', I: 'Intermédiaire', X: 'Expert' } as const)[cat]];
+    if (analyze(g, 400_000).decisionsOnSolution < crit.minDecisions) continue;
     if (out.some((o) => o.map.join() === map.join())) continue;
     out.push({ cat, map, min, max, rate, paths: r.winningPaths, states: r.statesExplored, dead: r.deadEnds });
     got++;

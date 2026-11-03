@@ -1,28 +1,30 @@
 import type { LevelDef } from '../../core/types';
 
-// Dernier niveau du chapitre : combinaison des mécanismes connus, sans nouveauté.
-// Retouche de la carte de référence : le petit cul-de-sac sous le levier devient le
-// ruisseau que franchit le pont (une impasse triviale de moins, même logique).
+// v0.5 — Final en trois zones : la rive de départ (caneton + levier), le pont, puis
+// l'autre rive séparée en deux par une plateforme du pont. Le pont ne disparaît pas :
+// on fait le tour de la rive ouest pour le second caneton et l'on revient sur la plateforme.
 const level: LevelDef = {
   key: 'chapter01-level06',
-  version: 1,
+  version: 2,
   id: 6,
-  name: 'La grande promenade',
+  name: 'Le grand parcours',
   theme: 'grand',
-  difficulty: 'Moyen à avancé',
-  objective: 'Sauve les 2 canetons et rallume la balise',
+  difficulty: 'Avancé',
+  objective: 'Récupère les 2 canetons, puis rejoins la sortie.',
   exitStyle: 'beacon',
   map: [
-    '#########',
-    '#S....###',
-    '#.##.####',
-    '#D...####',
-    '#.##.####',
-    '#..D.L..#',
-    '###.~~~B#',
-    '#######E#',
-    '#########',
+    '....#.E',
+    '.##.#.#',
+    '.D.B...',
+    '~~~B~~~',
+    '..#....',
+    '.#.#.#.',
+    'S.D..L.',
   ],
-  hints: { blockedExit: 'Il manque encore quelque chose…' },
+  stars: { three: 28, two: 28 },
+  hints: {
+    blockedExit: 'Récupère les 2 canetons',
+    idea: 'Le pont ne disparaît pas : sa plateforme te permet de repartir dans une autre direction.',
+  },
 };
 export default level;

@@ -14,9 +14,24 @@ export interface Settings {
 export interface LevelProgress {
   completed: boolean;
   stars: number;
-  /** Meilleur parcours : nombre de cases du trajet gagnant le plus court. */
+  /** Meilleur parcours sur la version actuelle de la carte, en déplacements. */
   bestMoves: number | null;
   bestPath?: number[];
+  /** Version de la carte à laquelle se rapportent bestMoves / bestPath (absent = 1). */
+  version?: number;
+  /** Record d'une ancienne version de la carte (conservé, jamais comparé à la nouvelle). */
+  legacy?: { version: number; bestMoves: number | null; stars: number }[];
+}
+
+/** Partie d'aventure commencée et pas terminée : rejouée à l'identique par « Reprendre le niveau ». */
+export interface AdventureRun {
+  key: string;
+  version: number;
+  /** Cases visitées après le départ, dans l'ordre. */
+  path: number[];
+  undos: number;
+  restarts: number;
+  updatedAt: string;
 }
 
 export interface ChallengeRecord {
@@ -29,7 +44,8 @@ export interface ChallengeRecord {
 }
 
 export interface SaveData {
-  version: 2;
+  /** 3 depuis la v0.5 (ajout de la partie en cours et des versions de carte). Même clé de stockage. */
+  version: 3;
   /** Dernier niveau d'aventure joué ou à jouer (« chapter01-level04 »). */
   currentLevel: string;
   levels: Record<string, LevelProgress>;
@@ -48,8 +64,12 @@ export interface SaveData {
     /** Derniers résultats (format prêt pour une validation serveur). */
     results: ScoreResult[];
   };
-  /** Niveaux dont la présentation a déjà été montrée. */
+  /** Niveaux dont la présentation a déjà été montrée (et aides déjà vues : « tip-… »). */
   introSeen: string[];
+  /** Partie d'aventure en cours (une seule). */
+  run: AdventureRun | null;
+  /** Dernier jour où l'écran Défis a été consulté (pastille « nouveau défi du jour »). */
+  challengesSeenDay: string | null;
   settings: Settings;
 }
 
@@ -67,7 +87,7 @@ const prefersReduced = () => {
 
 export function defaultSave(): SaveData {
   return {
-    version: 2,
+    version: 3,
     currentLevel: 'chapter01-level01',
     levels: {},
     chapters: {},
@@ -75,6 +95,8 @@ export function defaultSave(): SaveData {
     challenges: { records: {}, dailies: {}, results: [] },
     settings: { sound: true, ambience: true, reducedMotion: prefersReduced(), levelIntro: true },
     introSeen: [],
+    run: null,
+    challengesSeenDay: null,
   };
 }
 
@@ -94,8 +116,9 @@ export function migrateV1(v1: { unlocked?: number; stars?: Record<string, number
 function normalize(raw: unknown): SaveData {
   const base = defaultSave();
   const r = (raw ?? {}) as Partial<SaveData>;
+  const run = r.run && typeof r.run.key === 'string' && Array.isArray(r.run.path) ? r.run : null;
   return {
-    version: 2,
+    version: 3,
     currentLevel: typeof r.currentLevel === 'string' ? r.currentLevel : base.currentLevel,
     levels: r.levels ?? {},
     chapters: r.chapters ?? {},
@@ -110,6 +133,8 @@ function normalize(raw: unknown): SaveData {
       results: r.challenges?.results ?? [],
     },
     introSeen: Array.isArray(r.introSeen) ? r.introSeen : [],
+    run,
+    challengesSeenDay: typeof r.challengesSeenDay === 'string' ? r.challengesSeenDay : null,
     settings: { ...base.settings, ...(r.settings ?? {}) },
   };
 }
@@ -173,17 +198,42 @@ export const Save = {
     persist();
   },
   /** Enregistre une victoire d'aventure. Retourne true si c'est un nouveau meilleur parcours. */
-  recordLevel(key: string, stars: number, moves: number, path: number[]) {
+  recordLevel(key: string, version: number, stars: number, moves: number, path: number[]) {
+    Save.syncLevelVersion(key, version);
     const prev = data.levels[key];
     const better = !prev?.bestMoves || moves < prev.bestMoves;
     data.levels[key] = {
+      ...prev,
       completed: true,
       stars: Math.max(prev?.stars ?? 0, stars),
       bestMoves: better ? moves : prev!.bestMoves,
       bestPath: better ? path : prev?.bestPath,
+      version,
     };
     persist();
     return better;
+  },
+  /**
+   * Une carte a changé de version : le record de l'ancienne version est mis de côté (legacy),
+   * le niveau reste terminé (la progression et les étoiles obtenues sont conservées).
+   */
+  syncLevelVersion(key: string, version: number) {
+    const l = data.levels[key];
+    if (!l || (l.version ?? 1) === version) return false;
+    const legacy = [...(l.legacy ?? []), { version: l.version ?? 1, bestMoves: l.bestMoves, stars: l.stars }];
+    data.levels[key] = { completed: l.completed, stars: l.stars, bestMoves: null, version, legacy };
+    persist();
+    return true;
+  },
+  run: () => data.run,
+  saveRun(run: AdventureRun | null) {
+    data.run = run && run.path.length ? run : null;
+    persist();
+  },
+  markChallengesSeen(day: string) {
+    if (data.challengesSeenDay === day) return;
+    data.challengesSeenDay = day;
+    persist();
   },
   chapter: (id: string) => data.chapters[id] ?? { completed: false, endSeen: false },
   completeChapter(id: string) {
@@ -244,5 +294,10 @@ export const Save = {
     const s = data.settings;
     data = { ...defaultSave(), settings: s };
     persist();
+  },
+  /** Aides déjà présentées (commandes, etc.). */
+  tipSeen: (id: string) => data.introSeen.includes(`tip-${id}`),
+  markTipSeen(id: string) {
+    Save.markIntroSeen(`tip-${id}`);
   },
 };

@@ -1,27 +1,30 @@
 import type { LevelDef } from '../../core/types';
 
-// Retouche de la carte de référence : la maison est placée juste au-dessus du pont,
-// et deux cases d'obstacle deviennent le ruisseau, pour que le pont le traverse en ligne
-// droite. La logique est identique (même levier, mêmes détours, pont atteint par le bas).
+// v0.5 — Ordre des actions : le levier est dans un renfoncement à deux accès.
+// La case au pied du pont ne doit être utilisée qu'une fois le levier abaissé.
+// Solution courte : entrer chez le levier par la gauche, ressortir par la droite, remonter
+// la colonne du milieu jusqu'au pied du pont.
 const level: LevelDef = {
   key: 'chapter01-level04',
-  version: 1,
+  version: 2,
   id: 4,
-  name: 'Le petit pont',
+  name: 'Le pont du ruisseau',
   theme: 'river',
   difficulty: 'Moyen',
-  objective: 'Abaisse le levier et franchis le pont',
+  objective: 'Active le levier, puis traverse le pont.',
   exitStyle: 'house',
   map: [
-    '#########',
-    '######E##',
-    '#S...~B~#',
-    '#.##.#.##',
-    '#...L...#',
-    '#.#####.#',
-    '#.......#',
-    '#########',
+    '###E###',
+    '~~~B~~~',
+    '.......',
+    '.#.#.#.',
+    '...#...',
+    'S#.L.#.',
   ],
-  hints: { blockedExit: 'Le pont est replié : trouve le levier' },
+  stars: { three: 12, two: 16 },
+  hints: {
+    blockedExit: 'Active le levier',
+    idea: 'Le pied du pont ne sert qu’une fois : n’y passe qu’après avoir abaissé le levier.',
+  },
 };
 export default level;

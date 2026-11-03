@@ -48,12 +48,12 @@ describe('règles', () => {
     const g = grid(6);
     const s0 = initialState(g);
     const snap = JSON.stringify({ ...s0, closed: [...s0.closed] });
-    moves(g, 'DD', s0);
+    moves(g, 'RR', s0);
     expect(JSON.stringify({ ...s0, closed: [...s0.closed] })).toBe(snap);
   });
-  it('le pont et la porte ne se referment pas, le levier reste abaissé', () => {
+  it('le pont ne se referme pas, le levier reste abaissé', () => {
     const g = grid(4);
-    const s = moves(g, 'DDRRRRRUU');
+    const s = moves(g, 'URRDRRUUULU');
     expect(s.bridgesOpen).toBe(true);
     const bridge = g.cells.indexOf(Cell.Bridge);
     expect(s.pos).toBe(bridge);
@@ -61,17 +61,26 @@ describe('règles', () => {
     expect(s2.won).toBe(true);
     expect(s2.closed[bridge]).toBe(0);
   });
+  it('l’arche florale ne disparaît pas une fois ouverte', () => {
+    const g = grid(5);
+    const door = g.cells.indexOf(Cell.Door);
+    const s = moves(g, 'DDRRURURR'); // graine, arche, puis la case suivante
+    expect(s.doorsOpen).toBe(true);
+    expect(s.closed[door]).toBe(0);
+    expect(canEnter(g, s, door)).toBe(true);
+  });
 });
 
-describe('chapitre 1 : solutions de référence et intentions', () => {
-  // Solutions de référence du cahier des charges (N4 : « haut » final au lieu de « droite », la maison est au-dessus du pont).
-  const REF = ['RRDDLL', 'RRRRRDDD', 'DDRRRRRUU', 'DDRRRRRUUU', 'DDRRRRRUUR', 'DDDDRRRRRRDD'];
+describe('chapitre 1 (v0.5) : solutions de référence et intentions', () => {
+  // Solutions optimales vérifiées (R droite, L gauche, U haut, D bas).
+  const REF = ['RRRDDLLL', 'DDLDDLLD', 'DDDDRRUURRUUR', 'URRDRRUUULUU', 'DDRRURURRRUU', 'RRRRRRUULLLUUUULLLDDRRRRRUUR'];
   REF.forEach((seq, i) => {
-    it(`niveau ${i + 1} : la solution ${seq} gagne`, () => {
+    it(`niveau ${i + 1} : la solution ${seq} gagne en ${seq.length} déplacements`, () => {
       const g = grid(i + 1);
       const s = moves(g, seq);
       expect(s.won).toBe(true);
       expect(s.collected).toBe(allMask(g));
+      expect(solve(g).shortest!.length).toBe(seq.length);
     });
   });
 
@@ -85,43 +94,53 @@ describe('chapitre 1 : solutions de référence et intentions', () => {
     });
   }
 
-  it('niveau 1 : un seul trajet, aucun piège', () => {
-    const r = solve(grid(1));
-    expect(r.winningPaths).toBe(1);
-    expect(r.deadEnds).toBe(0);
-  });
-  it('niveau 2 : la branche du bas est une impasse', () => {
-    const g = grid(2);
-    const s = moves(g, 'RRDD');
+  it('niveau 1 : après le couloir, une impasse d’une case dont on ne revient pas', () => {
+    const g = grid(1);
+    const s = moves(g, 'RRRDDR');
     expect(canStillWin(g, s)).toBe(false);
   });
-  it('niveau 3 : sortie visible mais verrouillée sans le caneton', () => {
+  it('niveau 2 : le grand tour par la droite ne rejoint pas la sortie', () => {
+    const g = grid(2);
+    expect(canStillWin(g, moves(g, 'R'))).toBe(false);
+    // en bas, repartir à droite ramène sur son propre chemin
+    expect(canStillWin(g, moves(g, 'DDLDDR'))).toBe(false);
+  });
+  it('niveau 3 : la rangée du haut est le chemin du retour', () => {
     const g = grid(3);
     const s = moves(g, 'RRRR');
     expect(step(g, s, g.exit)).toEqual({ blocked: 'exit-locked' });
     expect(canStillWin(g, s)).toBe(false);
+    // entrer chez le caneton par la droite (en passant par le bas) condamne la sortie
+    expect(canStillWin(g, moves(g, 'DDDDRR'))).toBe(true);
+    expect(canStillWin(g, moves(g, 'DDDDRRR'))).toBe(false);
   });
-  it('niveau 4 : pont fermé avant le levier', () => {
+  it('niveau 4 : le pied du pont avant le levier fait perdre', () => {
     const g = grid(4);
     const bridge = g.cells.indexOf(Cell.Bridge);
-    // atteindre le pied du pont sans le levier (par le bas)
-    const s = moves(g, 'DDDDRRRRRRUULU');
+    const s = moves(g, 'UUURRR');
     expect(s.bridgesOpen).toBe(false);
     expect(step(g, s, bridge)).toEqual({ blocked: 'bridge-closed' });
+    expect(canStillWin(g, s)).toBe(false);
   });
-  it('niveau 5 : porte fermée sans la graine', () => {
+  it('niveau 5 : l’arche est fermée sans la graine ; le cul-de-sac de la graine s’ouvre par l’arche', () => {
     const g = grid(5);
     const door = g.cells.indexOf(Cell.Door);
-    const s = moves(g, 'DDRRDDRRRRUULU');
+    const s = moves(g, 'UURRRRD');
     expect(s.collected).toBe(0);
     expect(step(g, s, door)).toEqual({ blocked: 'door-closed' });
+    const k = moves(g, 'DDRRURU');
+    expect(k.doorsOpen).toBe(true);
+    expect(canStillWin(g, k)).toBe(true);
   });
-  it('niveau 6 : les deux canetons et le levier sont nécessaires', () => {
+  it('niveau 6 : deux canetons, le levier et la plateforme du pont sont nécessaires', () => {
     const g = grid(6);
     const r = solve(g);
     const s = replay(g, r.shortest!.slice(0, -1)).state;
     expect(s.collected).toBe(allMask(g));
     expect(s.bridgesOpen).toBe(true);
+    // la plateforme (pont) est traversée deux fois
+    const hub = g.cells.findIndex((c, i) => c === Cell.Bridge && i < g.width * 3);
+    expect(r.shortest!.filter((c) => c === hub).length).toBe(2);
     expect(r.deadEnds).toBeGreaterThan(10);
   });
 });

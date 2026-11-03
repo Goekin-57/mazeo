@@ -15,7 +15,7 @@ export interface ScoreResult {
   puzzleVersion: number;
   rulesVersion: number;
   mode: PlayMode;
-  /** Score principal : nombre de cases parcourues (plus petit = meilleur). */
+  /** Score principal : nombre de déplacements (1 déplacement = 1 case ; plus petit = meilleur). */
   moves: number;
   undos: number;
   restarts: number;
@@ -59,13 +59,14 @@ export function makeResult(def: LevelDef, a: { contextId: string; mode: PlayMode
 }
 
 /**
- * Étoiles d'aventure (facultatives, jamais bloquantes) : ★ terminé,
- * ★★ parcours au plus 25 % plus long que l'optimal, ★★★ parcours optimal.
- * Annuler et Recommencer ne pénalisent jamais.
+ * Étoiles d'aventure (facultatives, jamais bloquantes), en déplacements :
+ * ★ niveau réussi · ★★ au plus `two` (deuxième meilleur itinéraire possible) · ★★★ au plus `three` (optimal).
+ * Les seuils viennent du solveur. Annuler, Recommencer et les indices ne pénalisent jamais.
  */
-export function adventureStars(moves: number, optimal: number): number {
-  if (moves <= optimal) return 3;
-  if (moves <= Math.ceil(optimal * 1.25)) return 2;
+export function adventureStars(moves: number, t: { three: number; two: number } | number): number {
+  const th = typeof t === 'number' ? { three: t, two: Math.ceil(t * 1.25) } : t;
+  if (moves <= th.three) return 3;
+  if (moves <= th.two) return 2;
   return 1;
 }
 

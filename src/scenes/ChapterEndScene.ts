@@ -75,7 +75,7 @@ export class ChapterEndScene extends Phaser.Scene {
     this.time.delayedCall(500, () => pip.joy());
 
     // une seule action principale ; l'accueil reste accessible en secondaire
-    uiButton(this, W / 2 + 150, 1790, 'primary', { label: 'VOIR LE CARNET', width: 600, name: 'btn-journey' }, () => goTo(this, 'Journey'));
-    uiButton(this, W / 2 - 330, 1790, 'secondary', { label: 'Accueil', icon: 'icon-home', width: 300, name: 'btn-home' }, () => goTo(this, 'Home'));
+    uiButton(this, W / 2 + 150, 1790, 'primary', { label: 'Retour à l’aventure', width: 600, name: 'btn-journey' }, () => goTo(this, 'Journey'));
+    uiButton(this, W / 2 - 330, 1790, 'secondary', { label: 'Accueil', icon: 'ic-home', width: 300, name: 'btn-home' }, () => goTo(this, 'Home'));
   }
 }

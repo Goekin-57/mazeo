@@ -100,9 +100,10 @@ describe('scores', () => {
 });
 
 describe('sauvegarde', () => {
-  it('migration v1 → v2 sans perte', () => {
+  it('migration v1 → sauvegarde actuelle sans perte', () => {
     const v2 = migrateV1({ unlocked: 4, stars: { 1: 3, 2: 2, 3: 1 }, completed: { 1: true, 2: true, 3: true }, settings: { sound: false } });
-    expect(v2.version).toBe(2);
+    expect(v2.version).toBe(3);
+    expect(v2.run).toBeNull();
     expect(v2.levels['chapter01-level02']).toMatchObject({ completed: true, stars: 2 });
     expect(v2.levels['chapter01-level04']).toBeUndefined();
     expect(v2.currentLevel).toBe('chapter01-level04');

@@ -35,5 +35,5 @@ export function parseChallengeCode(code: string | null): ParsedCode | null {
 /** Texte de résultat à partager manuellement (aucun envoi automatique). */
 export function resultText(name: string, moves: number, optimalKnown: number | null, link: string) {
   const opt = optimalKnown ? ` (optimal : ${optimalKnown})` : '';
-  return `MAZEO — ${name} : ${moves} cases${opt}. À ton tour : ${link}`;
+  return `MAZEO — ${name} : ${moves} déplacement${moves > 1 ? "s" : ""}${opt}. À ton tour : ${link}`;
 }

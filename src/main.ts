@@ -2,6 +2,9 @@ import '@fontsource/fredoka/400.css';
 import '@fontsource/fredoka/500.css';
 import '@fontsource/fredoka/600.css';
 import '@fontsource/fredoka/700.css';
+import '@fontsource/nunito/600.css';
+import '@fontsource/nunito/700.css';
+import '@fontsource/nunito/800.css';
 import Phaser from 'phaser';
 import { BootScene } from './scenes/BootScene';
 import { ChallengesScene } from './scenes/ChallengesScene';
@@ -20,7 +23,10 @@ import { installDebugApi } from './debug';
 async function start() {
   try {
     await Promise.race([
-      Promise.all(['400', '500', '600', '700'].map((w) => document.fonts.load(`${w} 40px Fredoka`))),
+      Promise.all([
+        ...['400', '500', '600', '700'].map((w) => document.fonts.load(`${w} 40px Fredoka`)),
+        ...['600', '700', '800'].map((w) => document.fonts.load(`${w} 40px Nunito`)),
+      ]),
       new Promise((r) => setTimeout(r, 2500)),
     ]);
   } catch {

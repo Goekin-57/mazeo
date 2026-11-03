@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { C, hex } from '../art/palette';
 import { Sfx, unlockAudio } from '../audio/sfx';
 import { Save } from '../save';
+import { a11yButton } from './a11y';
 
 export const W = 1080;
 // Hauteur logique adaptée au ratio de l'écran (téléphones très allongés) : définie au démarrage.
@@ -96,9 +97,9 @@ export function button(
 export function toast(scene: Phaser.Scene, s: string, y: number, ms = 2600, depth = 5000) {
   const prev = scene.children.getByName('toast');
   if (prev) prev.destroy();
-  const t = txt(scene, 0, 0, s, 42, { color: C.ink, weight: 600, wrap: 860 });
+  const t = scene.add.text(0, 0, s, { fontFamily: 'Nunito, "Segoe UI", Arial, sans-serif', fontSize: '44px', fontStyle: '700', color: C.ink, align: 'center', wordWrap: { width: 860, useAdvancedWrap: true }, lineSpacing: 4 }).setOrigin(0.5);
   const g = scene.add.graphics();
-  const w = Math.min(900, t.width + 70);
+  const w = Math.min(940, t.width + 80);
   const h = t.height + 40;
   g.fillStyle(0x2c4a30, 0.18);
   g.fillRoundedRect(-w / 2, -h / 2 + 6, w, h, 30);
@@ -199,7 +200,7 @@ export function drift(scene: Phaser.Scene, n = 6, depth = -800) {
 }
 
 /** Interrupteur on/off accessible (position du bouton + couleur). */
-export function toggle(scene: Phaser.Scene, x: number, y: number, initial: boolean, onToggle: () => boolean, name?: string) {
+export function toggle(scene: Phaser.Scene, x: number, y: number, initial: boolean, onToggle: () => boolean, name?: string, aria?: string) {
   const c = scene.add.container(x, y);
   const bg = scene.add.graphics();
   const knob = scene.add.circle(0, 0, 26, 0xffffff).setStrokeStyle(3, 0xd6c39b);
@@ -219,5 +220,9 @@ export function toggle(scene: Phaser.Scene, x: number, y: number, initial: boole
     draw(onToggle());
   });
   c.add([bg, knob, mark, hit]);
+  if (aria) {
+    const el = a11yButton(scene, hit, aria, () => { const v = onToggle(); draw(v); el.setAttribute('aria-pressed', String(v)); });
+    el.setAttribute('aria-pressed', String(initial));
+  }
   return c;
 }

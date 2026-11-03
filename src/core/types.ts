@@ -45,10 +45,15 @@ export interface LevelDef {
   /** Type des collectibles numérotés 1-9 (les lettres D et K sont déjà typées). */
   collectibles?: Record<string, CollectibleKind>;
   exitStyle: ExitStyle;
-  /** Masquer « Annuler » quand il n'apporte rien (premier niveau). */
+  /** Masquer « Annuler » quand il n'apporte rien (déconseillé depuis la v0.5). */
   hideUndo?: boolean;
-  /** Conseils courts (tutoriel naturel). */
-  hints?: { start?: string; firstMove?: string; stuck?: string; blockedExit?: string };
+  /**
+   * Seuils d'étoiles en déplacements, calculés par le solveur à partir des parcours gagnants
+   * réellement possibles (vérifiés par les tests) : ★★★ ≤ three, ★★ ≤ two, ★ = réussite.
+   */
+  stars?: { three: number; two: number };
+  /** Conseils courts. `idea` est le premier indice : il oriente la réflexion sans donner le chemin. */
+  hints?: { start?: string; firstMove?: string; stuck?: string; blockedExit?: string; idea?: string };
 }
 
 export interface Grid {

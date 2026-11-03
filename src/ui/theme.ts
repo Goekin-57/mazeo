@@ -25,7 +25,10 @@ export const color = {
 };
 
 export const font = {
+  /** Titres, boutons, chiffres : Fredoka (arrondie, identité du jeu). */
   family: 'Fredoka, "Trebuchet MS", "Segoe UI", sans-serif',
+  /** Petits textes (légendes, explications) : Nunito, plus simple et plus lisible en petit. */
+  text: 'Nunito, "Segoe UI", "Helvetica Neue", Arial, sans-serif',
   display: px(30), // « Bravo ! », logo secondaire
   title: px(22), // titre d'écran
   heading: px(18), // titre de carte
@@ -52,6 +55,10 @@ export const touch = {
   secondaryH: px(48),
   icon: px(48), // zone tactile minimale des boutons icônes
   iconVisual: px(42),
+  /** Barre de commandes en partie : zone 48 px, glyphe 24 px, 10 px entre les boutons. */
+  barBtn: px(48),
+  barGlyph: px(24),
+  barGap: px(10),
 };
 
 export const shadow = { y: px(3), alpha: 0.16 };

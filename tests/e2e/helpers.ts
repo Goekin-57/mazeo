@@ -2,7 +2,7 @@ import { expect, type Page, type TestInfo } from '@playwright/test';
 
 export interface S {
   level: number; key: string; kind: string; ranked: boolean; moves: number; pos: number; won: boolean; collected: number; bridgesOpen: boolean; doorsOpen: boolean;
-  closed: number[]; steps: number; width: number; mode: string; history: number; fading: boolean;
+  closed: number[]; steps: number; width: number; mode: string; history: number; fading: boolean; blocked: string | null; exitCondition: string | null;
 }
 
 export const errorsOf = (page: Page) => {
@@ -121,3 +121,29 @@ export async function solveCurrent(page: Page, info: TestInfo) {
 
 export const info = (page: Page, name: string) => page.evaluate((n) => (window as any).__MAZEO__.info(n), name) as Promise<{ visible: boolean; enabled: boolean; text: string | null; scene: string } | null>;
 export const isPaused = (page: Page) => page.evaluate(() => (window as any).__MAZEO__.game.scene.isPaused('Game'));
+
+/** Ferme la présentation des commandes (première partie) si elle est affichée. */
+export async function dismissHelp(page: Page, info: TestInfo) {
+  // la présentation apparaît peu après le début du niveau (première partie seulement)
+  const seen = await page.evaluate(() => (window as any).__MAZEO__.save()?.introSeen?.includes('tip-controls'));
+  for (let k = 0; k < 15 && !(await visible(page, 'help-close')); k++) {
+    if (seen && k > 2) break;
+    await page.waitForTimeout(200);
+  }
+  if (await visible(page, 'help-close')) {
+    await press(page, info, 'help-close');
+    await expect.poll(() => visible(page, 'help-close')).toBe(false);
+  }
+}
+
+/** Déplace Bourgeon case par case (directions R L U D) avec de vrais touchers sur les cases voisines. */
+export async function walk(page: Page, info: TestInfo, dirs: string) {
+  for (const d of dirs) {
+    const s = (await state(page))!;
+    const [dx, dy] = ({ R: [1, 0], L: [-1, 0], U: [0, -1], D: [0, 1] } as Record<string, [number, number]>)[d];
+    await tapCell(page, info, s.pos + dx + dy * s.width);
+    await waitIdle(page);
+  }
+}
+
+export const a11yNames = (page: Page) => page.evaluate(() => (window as any).__MAZEO__.a11y() as string[]);

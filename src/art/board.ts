@@ -11,10 +11,10 @@ export interface BoardLayout {
   height: number;
 }
 
-export function boardLayout(g: Grid, tw: number): BoardLayout {
-  const td = Math.round(tw * 0.825);
-  const pad = Math.round(tw * 0.38);
-  const soil = Math.round(tw * 0.42);
+export function boardLayout(g: Grid, tw: number, f: { pad?: number; soil?: number; depth?: number } = {}): BoardLayout {
+  const td = Math.round(tw * (f.depth ?? 0.825));
+  const pad = Math.round(tw * (f.pad ?? 0.38));
+  const soil = Math.round(tw * (f.soil ?? 0.42));
   return { tw, td, pad, soil, width: g.width * tw + pad * 2, height: g.height * td + pad * 2 + soil + 30 };
 }
 

@@ -1,6 +1,8 @@
 import Phaser from 'phaser';
 import { generateRegionTextures } from '../art/regions';
 import { generateTextures } from '../art/textures';
+import { generateTexturesV5 } from '../art/textures-v5';
+import { reconcileLevelVersions } from '../progress';
 
 /** Génère toutes les textures (dessinées localement) puis ouvre l'écran demandé. */
 export class BootScene extends Phaser.Scene {
@@ -10,7 +12,10 @@ export class BootScene extends Phaser.Scene {
 
   create() {
     generateTextures(this);
+    generateTexturesV5(this);
     generateRegionTextures(this);
+    // cartes modifiées en v0.5 : les anciens records sont mis de côté, la progression est conservée
+    reconcileLevelVersions();
     const q = new URLSearchParams(window.location.search);
     // lien de défi partagé : ?defi=puzzle-f01@1
     const defi = q.get('defi');
@@ -23,7 +28,7 @@ export class BootScene extends Phaser.Scene {
         return void this.scene.start('Game', { kind: 'adventure', key });
       }
       const sc = q.get('scene');
-      if (sc && ['Journey', 'Chapter', 'Challenges', 'Collection', 'Community', 'ChapterEnd'].includes(sc)) return void this.scene.start(sc, {});
+      if (sc && ['Journey', 'Chapter', 'Challenges', 'Collection', 'Community', 'ChapterEnd', 'Settings'].includes(sc)) return void this.scene.start(sc, {});
     }
     this.scene.start('Home');
   }

@@ -95,8 +95,8 @@ export function autoDecor(g: Grid, seed: number): (WallDecor | null)[] {
     const h = ((x * 73856093) ^ (y * 19349663) ^ (seed * 83492791)) >>> 0;
     const r = (h % 1000) / 1000;
     const below = y < g.height - 1 ? g.cells[i + g.width] : null;
-    // les arbres (hauts) vont plutôt sur la première rangée pour ne rien masquer
-    if (y === 0 && r < 0.3) return 'tree';
+    // v0.5 : plus d'arbres sur le plateau (ils masquaient des cases et des embranchements)
+    void y;
     if (r < 0.1) return 'flowers';
     if (r < 0.16) return 'bush';
     if (r < 0.2 && below === Cell.Wall) return 'rock';

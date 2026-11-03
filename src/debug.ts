@@ -1,5 +1,6 @@
 import type Phaser from 'phaser';
 import { xy } from './core/grid';
+import { shortestFrom } from './core/analysis';
 import { solve } from './core/solver';
 import type { GameScene } from './scenes/GameScene';
 
@@ -22,7 +23,7 @@ export function installDebugApi(game: Phaser.Game) {
         level: s.def.id, key: s.def.key, kind: s.req.kind, ranked: s.ranked, moves: s.moves, pos: st.pos, won: st.won, collected: st.collected, bridgesOpen: st.bridgesOpen,
         doorsOpen: st.doorsOpen, closed: [...st.closed].map((v, i) => (v ? i : -1)).filter((i) => i >= 0), steps: st.steps,
         width: s.grid.width, mode: s.currentMode, history: s.historySize,
-        fading: s.cameras.main.fadeEffect.isRunning,
+        fading: s.cameras.main.fadeEffect.isRunning, blocked: s.blockedInfo, exitCondition: s.exitCondition(),
       };
     },
     /** Coordonnées CSS (page) du centre d'une case. */
@@ -35,6 +36,15 @@ export function installDebugApi(game: Phaser.Game) {
     solution() {
       const s = gs();
       return solve(s.grid).shortest;
+    },
+    /** Plus court parcours gagnant depuis l'état courant (null si plus aucun). */
+    solutionFromHere() {
+      const s = gs();
+      return shortestFrom(s.grid, s.state).path;
+    },
+    /** Noms accessibles des boutons HTML superposés (couche d'accessibilité). */
+    a11y() {
+      return [...document.querySelectorAll('#a11y-layer button')].filter((b) => !(b as HTMLButtonElement).hidden).map((b) => b.getAttribute('aria-label'));
     },
     save() {
       try { return JSON.parse(localStorage.getItem('mazeo.save.v2') ?? 'null'); } catch { return null; }
@@ -64,7 +74,8 @@ export function installDebugApi(game: Phaser.Game) {
       const hit = locate(game, name, true);
       if (!hit) return null;
       const o = hit.obj as Phaser.GameObjects.GameObject & { parentContainer?: Phaser.GameObjects.Container & { enabled?: boolean } };
-      const textObj = o.parentContainer?.list?.find((x) => x.type === 'Text') as Phaser.GameObjects.Text | undefined;
+      const own = (o as unknown as { list?: Phaser.GameObjects.GameObject[] }).list;
+      const textObj = (own?.find((x) => x.type === 'Text') ?? o.parentContainer?.list?.find((x) => x.type === 'Text')) as Phaser.GameObjects.Text | undefined;
       return { visible: deepVisible(o), enabled: o.parentContainer?.enabled ?? true, text: (o as Phaser.GameObjects.Text).text ?? textObj?.text ?? null, scene: hit.sc.scene.key };
     },
   };
