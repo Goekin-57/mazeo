@@ -116,8 +116,9 @@ export function uiButton(
     if (!opts.tooltip || tip || !c.visible || (c.parentContainer && !c.parentContainer.visible)) return;
     const m = c.getWorldTransformMatrix();
     tip = tooltipBubble(scene, m.tx, m.ty - hitH / 2 - 46, opts.tooltip);
-    // la bulle disparaît d'elle-même (et avec le bouton)
+    // la bulle disparaît d'elle-même (et avec le bouton, ou quand l'écran est mis en pause)
     scene.time.delayedCall(1800, hideTip);
+    scene.events.once('pause', hideTip);
   };
   c.once('destroy', () => hideTip());
   hit.on('pointerdown', () => {
